@@ -1,0 +1,269 @@
+/// AI 引擎：LLMProvider 适配层（DESIGN.md §7.1）。
+///
+/// 三家原生适配，统一接口，提示词模板与供应商解耦：
+/// - Claude：Anthropic Messages API（/v1/messages）
+/// - DeepSeek：OpenAI 兼容协议（/chat/completions）
+/// - Ollama：本地 /api/chat
+///
+/// 全部经 dio 实现（claude_dart 等 SDK 本质同为 HTTP 封装，直接调用更可控）。
+library;
+
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
+
+import '../models/settings.dart';
+
+/// 对话消息
+class ChatMessage {
+  /// system | user | assistant
+  final String role;
+  final String content;
+
+  const ChatMessage(this.role, this.content);
+
+  Map<String, dynamic> toOpenAiJson() => {'role': role, 'content': content};
+}
+
+/// 供应商统一接口
+abstract class LLMProvider {
+  String get id;
+  String get name;
+
+  /// 单轮对话。systemPrompt 作为系统提示，messages 为对话历史。
+  Future<String> chat(
+    String systemPrompt,
+    List<ChatMessage> messages, {
+    double temperature = 0.7,
+  });
+
+  /// 连通性检查（设置页测试按钮）
+  Future<bool> ping();
+}
+
+/// 按 baseUrl 拼接路径，兼容"已带 /v1"与"未带"两种配置
+String _apiUrl(String baseUrl, String suffix) {
+  var base = baseUrl.trim();
+  while (base.endsWith('/')) {
+    base = base.substring(0, base.length - 1);
+  }
+  if (base.contains('/v1') || base.contains('/api')) {
+    return '$base$suffix';
+  }
+  return '$base/v1$suffix';
+}
+
+/// Claude（Anthropic Messages API）
+class ClaudeProvider implements LLMProvider {
+  final String baseUrl;
+  final String apiKey;
+  final String model;
+  final Dio _dio;
+
+  ClaudeProvider({
+    this.baseUrl = 'https://api.anthropic.com',
+    this.apiKey = '',
+    this.model = 'claude-sonnet-5',
+    Dio? dio,
+  }) : _dio = dio ?? Dio(BaseOptions(connectTimeout: const Duration(seconds: 30)));
+
+  @override
+  String get id => 'claude';
+
+  @override
+  String get name => 'Claude';
+
+  @override
+  Future<String> chat(
+    String systemPrompt,
+    List<ChatMessage> messages, {
+    double temperature = 0.7,
+  }) async {
+    final resp = await _dio.post(
+      _apiUrl(baseUrl, '/messages'),
+      options: Options(headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      }),
+      data: {
+        'model': model,
+        'max_tokens': 4096,
+        'system': systemPrompt,
+        'messages': [
+          for (final m in messages)
+            if (m.role != 'system') {'role': m.role, 'content': m.content},
+        ],
+        'temperature': temperature,
+      },
+    );
+    final data = resp.data as Map<String, dynamic>;
+    final blocks = data['content'] as List? ?? [];
+    return blocks
+        .whereType<Map<String, dynamic>>()
+        .where((b) => b['type'] == 'text')
+        .map((b) => b['text'] as String)
+        .join();
+  }
+
+  @override
+  Future<bool> ping() async {
+    try {
+      await chat('Reply with "ok".', const []);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+/// DeepSeek（OpenAI 兼容协议）
+class DeepSeekProvider implements LLMProvider {
+  final String baseUrl;
+  final String apiKey;
+  final String model;
+  final Dio _dio;
+
+  DeepSeekProvider({
+    this.baseUrl = 'https://api.deepseek.com',
+    this.apiKey = '',
+    this.model = 'deepseek-chat',
+    Dio? dio,
+  }) : _dio = dio ?? Dio(BaseOptions(connectTimeout: const Duration(seconds: 30)));
+
+  @override
+  String get id => 'deepseek';
+
+  @override
+  String get name => 'DeepSeek';
+
+  @override
+  Future<String> chat(
+    String systemPrompt,
+    List<ChatMessage> messages, {
+    double temperature = 0.7,
+  }) async {
+    final all = [
+      if (systemPrompt.isNotEmpty) ChatMessage('system', systemPrompt),
+      ...messages,
+    ];
+    final resp = await _dio.post(
+      _apiUrl(baseUrl, '/chat/completions'),
+      options: Options(headers: {
+        'Authorization': 'Bearer $apiKey',
+        'content-type': 'application/json',
+      }),
+      data: {
+        'model': model,
+        'messages': all.map((e) => e.toOpenAiJson()).toList(),
+        'temperature': temperature,
+      },
+    );
+    final data = resp.data as Map<String, dynamic>;
+    final choice = (data['choices'] as List? ?? []).firstOrNull;
+    final message = (choice as Map<String, dynamic>?)?['message'] as Map<String, dynamic>?;
+    return message?['content'] as String? ?? '';
+  }
+
+  @override
+  Future<bool> ping() async {
+    try {
+      await chat('Reply with "ok".', const []);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+/// Ollama（本地）
+class OllamaProvider implements LLMProvider {
+  final String baseUrl;
+  final String model;
+  final Dio _dio;
+
+  OllamaProvider({
+    this.baseUrl = 'http://localhost:11434',
+    this.model = 'qwen2.5',
+    Dio? dio,
+  }) : _dio = dio ?? Dio(BaseOptions(connectTimeout: const Duration(seconds: 30)));
+
+  @override
+  String get id => 'ollama';
+
+  @override
+  String get name => 'Ollama';
+
+  @override
+  Future<String> chat(
+    String systemPrompt,
+    List<ChatMessage> messages, {
+    double temperature = 0.7,
+  }) async {
+    final resp = await _dio.post(
+      '$baseUrl/api/chat',
+      data: {
+        'model': model,
+        'stream': false,
+        'messages': [
+          if (systemPrompt.isNotEmpty) {'role': 'system', 'content': systemPrompt},
+          ...messages.map((e) => e.toOpenAiJson()),
+        ],
+      },
+    );
+    final data = resp.data;
+    if (data is String) {
+      // Ollama 可能返回 JSONL 字符串
+      return jsonDecode(data)['message']?['content'] as String? ?? '';
+    }
+    return (data as Map<String, dynamic>)['message']?['content'] as String? ?? '';
+  }
+
+  @override
+  Future<bool> ping() async {
+    try {
+      await chat('Reply with "ok".', const []);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+/// 按配置创建主/备供应商
+class LLMProviderFactory {
+  /// 根据 [AiSettings] 创建供应商（只创建参数齐全的）
+  static LLMProvider create(AiSettings ai, String id) {
+    switch (id) {
+      case 'claude':
+        return ClaudeProvider(
+          baseUrl: ai.claudeBaseUrl,
+          apiKey: ai.claudeApiKey,
+          model: ai.claudeModel,
+        );
+      case 'deepseek':
+        return DeepSeekProvider(
+          baseUrl: ai.deepseekBaseUrl,
+          apiKey: ai.deepseekApiKey,
+          model: ai.deepseekModel,
+        );
+      case 'ollama':
+        return OllamaProvider(
+          baseUrl: ai.ollamaBaseUrl,
+          model: ai.ollamaModel,
+        );
+      default:
+        throw ArgumentError('unknown provider: $id');
+    }
+  }
+
+  /// 主备顺序（主供应商在前，备选按配置顺序）
+  static List<String> order(AiSettings ai) => [
+        if (ai.provider.isNotEmpty) ai.provider,
+        ...ai.fallback.where((p) => p != ai.provider),
+      ];
+
+  /// 该供应商是否可用于会议素材（合规：设置可禁用第三方）
+  static bool allowsMeeting(AiSettings ai, String providerId) =>
+      ai.allowsMeeting(providerId);
+}
