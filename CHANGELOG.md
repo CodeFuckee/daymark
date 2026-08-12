@@ -6,6 +6,12 @@
 
 ### 修复
 
+- macOS 构建产物启动闪退（issue #4）：`scripts/sign_macos.sh` 此前只签名
+  `Contents/Frameworks/*.dylib` 与 `.app`，跳过了 `.framework`（daymark_core.framework
+  保留 Xcode 构建期签名，与 .app 的 ad-hoc 签名 Team ID 不一致，dyld 加载
+  `@rpath/daymark_core.framework` 报 "different Team IDs" 直接 SIGABRT）→ 现在对
+  `.framework` 强制 `--force --deep` 重签，并新增 Team ID 一致性硬校验（app 与
+  全部嵌入组件必须一致，ad-hoc 均为空；不一致则构建失败，避免再次发布坏产物）
 - linux-build 锁定 code01 runner（tags: linux+deploy）：NAS runner 实为 shell
   executor 且 gitlab-runner 用户无 apt 权限，libsecret-1-dev 装不上致 CMake 构建
   失败（流水线 #582），锁定后回到 #560 成功路径

@@ -36,10 +36,35 @@ for f in "$APP"/Contents/Frameworks/*.dylib; do
   codesign --force --sign "$IDENTITY" --options runtime "$f"
 done
 
+# 关键：签名 .framework（daymark_core.framework 等）。此前只签 .dylib 与 .app，
+# framework 保留 Xcode 构建期的签名，与 .app 的 ad-hoc 签名 Team ID 不一致，
+# dyld 加载 @rpath/daymark_core.framework 时报 "different Team IDs" → 启动闪退
+# （issue #4）。--force --deep 强制重签内部全部二进制（Versions/A/... 等）。
+echo "==> 签名 Frameworks 内的 .framework（含 Rust core framework）"
+for f in "$APP"/Contents/Frameworks/*.framework; do
+  [ -d "$f" ] || continue
+  codesign --force --deep --sign "$IDENTITY" --options runtime "$f"
+done
+
 echo "==> 签名 .app（identity: $IDENTITY）"
 codesign --force --sign "$IDENTITY" --options runtime "$APP"
 
 echo "==> 验证签名"
 codesign --verify --deep --strict "$APP"
+
+# dyld 要求主程序与嵌入的 framework/dylib Team ID 完全一致（ad-hoc 均为空）——
+# --verify 不覆盖此项，缺失校验会重蹈 issue #4：签名无效但 CI 仍绿。
+echo "==> 校验 Team ID 一致性（dyld 加载要求主程序与嵌入组件一致）"
+APP_TEAM=$(codesign -dv --verbose=4 "$APP" 2>&1 | awk -F'=' '/TeamIdentifier/{print $2; exit}')
+echo "    app TeamIdentifier: ${APP_TEAM:-<空/ad-hoc>}"
+for f in "$APP"/Contents/Frameworks/*.framework "$APP"/Contents/Frameworks/*.dylib; do
+  [ -e "$f" ] || continue
+  T=$(codesign -dv --verbose=4 "$f" 2>&1 | awk -F'=' '/TeamIdentifier/{print $2; exit}')
+  if [ "$T" != "$APP_TEAM" ]; then
+    echo "错误: $f TeamIdentifier='${T:-空}' 与 app '${APP_TEAM:-空}' 不一致，dyld 会拒绝加载（issue #4）" >&2
+    exit 1
+  fi
+done
+echo "    Team ID 全部一致"
 
 echo "==> 完成: $APP"
