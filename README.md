@@ -93,6 +93,7 @@ open build/macos/Build/Products/Release/daymark.app
 | `macos-build` | macOS **arm64 dmg**（ad-hoc 签名，runner: mac） |
 | `windows-build` | Windows **exe 安装包**（NSIS，runner: windows） |
 | `push-to-github` | main 每次 push 时同步源码到 GitHub（排除 `.gitlab-ci.yml`，`scripts/sync_github.py`） |
+| `publish-release` | 全部 job 成功后发布三端 release（GitLab 全量存档 + GitHub 滚动保留 5 个，`scripts/publish_release.py`） |
 
 产物上传为 GitLab CI artifacts（保留 30 天）。macOS 公证需要开发者证书，
 CI 默认只做 ad-hoc 签名（本机信任使用）。

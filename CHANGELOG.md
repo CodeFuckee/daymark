@@ -27,6 +27,11 @@
   源码快照同步到 GitHub 公开仓库 CodeFuckee/daymark（`scripts/sync_github.py`）；
   脱敏排除 `.gitlab-ci.yml`（GitHub 侧用自己的 Actions workflow `build.yml`）；
   认证走 GitLab CI variable `GITHUB_TOKEN`（需 API 写权限）
+- GitLab CI 新增 `publish-release` deploy 阶段（issue #3）：全部 job 成功后发布
+  三端 release（`scripts/publish_release.py`）——GitLab Releases 全量存档（generic
+  packages 永久存储）+ GitHub Releases 对外分发（滚动保留最近 5 个，旧 release
+  自动删除）；版本 vX.Y.Z 自动递增（以 GitLab 最新 tag 为准），release 描述含
+  构建时间（UTC+8）与三端下载说明
 - `scripts/sync_github.py` 走 GitHub REST API（git database API，api.github.com
   稳定可达）而非 git push——github.com git 端点在国内网络间歇性被 SNI 干扰
   （TCP 通但 TLS 握手被丢弃）；diff 对比远程 tree 只上传变化文件，首次推送
