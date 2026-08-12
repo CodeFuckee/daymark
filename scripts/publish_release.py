@@ -169,7 +169,11 @@ def publish_gitlab(version, sha):
                              f"/projects/{GITLAB_PROJECT}/packages/generic/{PACKAGE_NAME}/{version}/{remote}",
                              binary=open(path, "rb").read())] = (local, remote)
         for fut, (local, remote) in futs.items():
-            fut.result()  # 失败即抛
+            try:
+                fut.result()
+            except RuntimeError as e:
+                if "422" not in str(e) and "409" not in str(e):
+                    raise  # 422/409 = 同版本包已存在（重跑幂等），跳过
             links.append({
                 "name": remote,
                 "url": f"{GITLAB_API}/projects/{GITLAB_PROJECT}/packages/generic/{PACKAGE_NAME}/{version}/{remote}",
@@ -178,6 +182,7 @@ def publish_gitlab(version, sha):
     release = gl_api("POST", f"/projects/{GITLAB_PROJECT}/releases", {
         "tag_name": version, "name": f"Daymark {version}",
         "description": release_body(version, sha),
+        "ref": os.environ.get("CI_COMMIT_SHA", "main"),  # GitLab 要求 ref（tag 指向的提交）
         "assets": {"links": links},
     })
     print(f"    已发布 {release.get('_links', {}).get('web_url', version)}")
