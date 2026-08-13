@@ -7,6 +7,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../../src/rust/api/extract.dart' as frb_extract;
 import '../../src/rust/api/watcher.dart' as frb_watcher;
 import '../models/material.dart';
@@ -21,9 +23,14 @@ import '../util/markdown_util.dart';
 class CollectService {
   final AppSettings settings;
   final Transcriber _transcriber;
+  /// 事件聚合节流时长（测试注入短时长；默认 5s 与 DESIGN.md §5.3 一致）
+  final Duration debounceDuration;
 
-  CollectService(this.settings, {Transcriber? transcriber})
-      : _transcriber = transcriber ?? Transcriber();
+  CollectService(
+    this.settings, {
+    Transcriber? transcriber,
+    this.debounceDuration = const Duration(seconds: 5),
+  }) : _transcriber = transcriber ?? Transcriber();
 
   // ─────────────────────────── 当日素材聚合 ───────────────────────────
 
@@ -156,7 +163,13 @@ class CollectService {
 
   bool get isWatching => _sub != null;
 
-  /// 开始递归监控（设置中保存后调用）
+  /// 开始递归监控（设置中保存后调用）。
+  ///
+  /// 事件流只报告监控建立之后的变更（FSEvents/inotify 均无历史回放），
+  /// 因此订阅后还要做一次初始扫描，把监控目录中「今日修改/新增」的文件
+  /// 补进当日素材缓存（issue #13：配置目录后无法获取今日修改/新增文件）。
+  /// 扫描放后台执行，不阻塞启动与保存；与事件 flush 的并发写缓存由
+  /// [_mergeChain] 串行化保证不丢记录。
   Future<void> startWatching() async {
     await stopWatching();
     final dirs = settings.watchDirs.where((d) => d.trim().isNotEmpty).toList();
@@ -168,13 +181,15 @@ class CollectService {
       excludes: settings.excludePatterns,
     );
     _sub = stream.listen((event) {
-      // 排除目录自身（避免监控 .daymark 缓存写入引发的循环事件）
-      if (event.path.contains('/.daymark/')) return;
+      // 排除 daymark 自身缓存目录（避免缓存写入引发循环事件）
+      if (isOwnCachePath(event.path)) return;
       _pending[event.path] = event.kind;
-      _debounce ??= Timer(const Duration(seconds: 5), _flushPending);
+      _debounce ??= Timer(debounceDuration, _flushPending);
     }, onError: (Object e) {
       stderr.writeln('[daymark] watcher error: $e');
     });
+
+    unawaited(_scanToday(dirs));
   }
 
   Future<void> stopWatching() async {
@@ -183,6 +198,34 @@ class CollectService {
     await _sub?.cancel();
     _sub = null;
     await frb_watcher.stopWatching(id: BigInt.from(_watchId));
+  }
+
+  /// 初始扫描：把 [dirs] 中 mtime 在今日 00:00 之后的文件合并进当日素材缓存。
+  /// 单目录失效/不可访问时跳过该目录，不中断其余目录（issue #13 方案 B）。
+  Future<void> _scanToday(List<String> dirs) async {
+    final since = dayStart(DateTime.now());
+    for (final dir in dirs) {
+      try {
+        await for (final entity
+            in Directory(dir).list(recursive: true, followLinks: false)) {
+          if (entity is! File) continue;
+          if (isOwnCachePath(entity.path) || _isExcludedPath(entity.path)) {
+            continue;
+          }
+          final stat = entity.statSync();
+          if (stat.type == FileSystemEntityType.notFound) continue;
+          if (stat.modified.isBefore(since)) continue;
+          await _mergeIntoCache(FileChange(
+            path: entity.path,
+            mtime: stat.modified,
+            size: stat.size,
+            kind: 'modify', // 扫描发现的是存量文件，按"已修改"记录
+          ));
+        }
+      } catch (e) {
+        stderr.writeln('[daymark] scan watched dir failed for $dir: $e');
+      }
+    }
   }
 
   /// 5s 节流批处理：stat 后按 mtime 归档到自然日缓存
@@ -196,20 +239,40 @@ class CollectService {
       final path = entry.key;
       final kind = entry.value;
       final stat = File(path).statSync();
-      final change = FileChange(
+      if (stat.type == FileSystemEntityType.notFound) {
+        // remove：把该文件从当日缓存删除，而不是写入 kind='remove' 条目
+        //（macOS 上编辑器锁文件/临时文件的 create→remove 高频出现，留下
+        // remove 记录会在素材里堆积噪音——issue #13 方案 B）
+        await _removeFromCache(path);
+        continue;
+      }
+      await _mergeIntoCache(FileChange(
         path: path,
-        mtime: stat.type == FileSystemEntityType.notFound
-            ? DateTime.now()
-            : stat.modified,
-        size: stat.type == FileSystemEntityType.notFound ? 0 : stat.size,
-        kind: stat.type == FileSystemEntityType.notFound ? 'remove' : kind,
-      );
-      await _mergeIntoCache(change);
+        mtime: stat.modified,
+        size: stat.size,
+        kind: kind,
+      ));
     }
   }
 
+  /// 缓存写串行链：初始扫描与事件 flush 并发时保证 load-modify-save
+  /// 不交错（交错会导致后写覆盖先写、记录丢失）
+  Future<void> _mergeChain = Future.value();
+
+  /// 串行入队一次缓存变更；单次失败只写日志，不断链
+  Future<void> _enqueueCacheWrite(Future<void> Function() action) {
+    final next = _mergeChain.then((_) => action()).catchError((Object e) {
+      stderr.writeln('[daymark] material cache write failed: $e');
+    });
+    _mergeChain = next;
+    return next;
+  }
+
   /// 合并进当日素材缓存（path 去重，新覆盖旧）
-  Future<void> _mergeIntoCache(FileChange change) async {
+  Future<void> _mergeIntoCache(FileChange change) =>
+      _enqueueCacheWrite(() => _mergeIntoCacheNow(change));
+
+  Future<void> _mergeIntoCacheNow(FileChange change) async {
     final date = dayStart(change.mtime);
     final cached = await loadMaterialCache(settings.logRoot, date);
     final list = [...?cached?.fileChanges];
@@ -218,6 +281,33 @@ class CollectService {
     final merged = (cached ?? DailyMaterial(date: date)).copyWith(fileChanges: list);
     await saveMaterialCache(settings.logRoot, merged);
   }
+
+  /// 把 [path] 的记录从当日素材缓存删除（文件已删除，无法按 mtime 定位，
+  /// remove 事件发生在"现在"，记录按当日清理）
+  Future<void> _removeFromCache(String path) =>
+      _enqueueCacheWrite(() async {
+        final date = dayStart(DateTime.now());
+        final cached = await loadMaterialCache(settings.logRoot, date);
+        if (cached == null) return;
+        final list = [...cached.fileChanges];
+        final before = list.length;
+        list.removeWhere((c) => c.path == path);
+        if (list.length == before) return;
+        await saveMaterialCache(
+          settings.logRoot,
+          cached.copyWith(fileChanges: list),
+        );
+      });
+
+  /// daymark 自身缓存路径（避免缓存写入引发循环事件）。
+  /// Windows 事件路径分隔符为 `\`，两种分隔符都要匹配（issue #13 方案 B）。
+  @visibleForTesting
+  bool isOwnCachePath(String path) =>
+      path.contains('/.daymark/') || path.contains(r'\.daymark\');
+
+  /// 排除规则：与 Rust 侧 is_excluded 一致（子串匹配）
+  bool _isExcludedPath(String path) => settings.excludePatterns
+      .any((p) => p.isNotEmpty && path.contains(p));
 
   // ─────────────────────────── 音频转录 ───────────────────────────
 

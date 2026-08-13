@@ -6,6 +6,21 @@
 
 ### 修复
 
+- 配置监控目录后，无法获取今日修改或新增的文件（issue #13，mac 端报告）：
+  根因是文件监控只订阅事件流（FSEvents/inotify/ReadDirectoryChangesW 均
+  只报告监控建立**之后**的变更、无历史回放），配置目录前今日已修改/新增
+  的文件永远不会进入素材缓存——三平台均存在此问题。修复（方案 B）：①
+  `startWatching()` 订阅事件后，后台初始扫描各监控目录中 mtime 在今日
+  00:00 之后的文件合并进当日素材缓存（kind='modify'，不阻塞启动与保存，
+  目录失效时跳过其余继续）；② remove 事件改为把该文件记录从当日缓存删除，
+  不再写入 `kind='remove'` 条目（macOS 上编辑器锁文件/临时文件高频
+  create→remove，修复前会堆积 remove 噪音）；③ 缓存写入串行化——初始扫描
+  与事件节流 flush 并发时的 load-modify-save 不再交错丢记录；④ `.daymark`
+  自写排除兼容 Windows `\` 分隔符（修复前 Windows 上监控目录包含日志根
+  目录时缓存自写会循环触发事件）
+- 新增回归测试：初始扫描（配置目录后今日已修改文件入库、旧文件不入库）、
+  remove 事件清理缓存、Windows 反斜杠排除、失效目录容错 4 个用例（前 2
+  个修复前失败）；`CollectService` 增加 `debounceDuration` 注入参数供测试
 - 关闭软件后重新打开，保存的设置丢失（issue #12）：根因是启动加载链路——
   `SettingsService.load()` 从磁盘读回设置后，`AppController._init()` 只
   置了 `settingsLoaded` 标志，**没有把读回的设置同步进 `state.settings`**；
