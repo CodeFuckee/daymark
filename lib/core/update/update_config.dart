@@ -1,13 +1,16 @@
 /// 更新源配置（构建期注入，issue #5）：打包时经 --dart-define 写入软件。
 ///
 /// - `DAYMARK_UPDATE_SOURCES_B64`：base64(JSON 源数组)，如
-///   [{"type":"gitlab","api":"https://host/api/v4","project":"ns%2Fproj","token":"..."},
+///   [{"type":"gitlab","api":"https://host/api/v4","project":"ns%2Fproj"},
 ///    {"type":"github","repo":"owner/repo"}]
 /// - `DAYMARK_APP_VERSION`：产物版本 X.Y.Z（与 release tag 一致，CI 构建时注入）
 ///
 /// GitLab 打包只注入 GitLab 源，GitHub 打包只注入 GitHub 源（issue 要求：
 /// 打包源决定更新检测地址）；两个都注入时全查取版本最高者。
 /// 未注入（本地开发构建）→ 更新功能整体禁用，不打扰开发。
+///
+/// 仓库为 public（issue #5 用户确认）→ 全部匿名访问，不内置 token；
+/// 旧格式（v0.1.4 及以前）JSON 中残留的 `token` 字段解析时容错忽略。
 library;
 
 import 'dart:convert';
@@ -21,8 +24,6 @@ class UpdateSource {
   final String? api;
   /// GitLab 项目路径（URL 编码，如 chenkaidi%2Fdaymark）
   final String? project;
-  /// GitLab 只读 token（private 仓库 release API 需要；构建时内置，仅 read 权限）
-  final String? token;
   /// GitHub 仓库 owner/repo
   final String? repo;
 
@@ -30,20 +31,19 @@ class UpdateSource {
     required this.type,
     this.api,
     this.project,
-    this.token,
     this.repo,
   });
 
   const UpdateSource.gitlab({
     required String api,
     required String project,
-    String? token,
-  }) : this._(type: 'gitlab', api: api, project: project, token: token);
+  }) : this._(type: 'gitlab', api: api, project: project);
 
   const UpdateSource.github({required String repo})
       : this._(type: 'github', repo: repo);
 
-  /// 解析 JSON 条目；类型未知或必填字段缺失 → 抛 [FormatException]（调用方跳过）
+  /// 解析 JSON 条目；类型未知或必填字段缺失 → 抛 [FormatException]（调用方跳过）。
+  /// `token` 等旧格式字段直接忽略（public 仓库匿名访问）。
   factory UpdateSource.fromJson(Map<String, dynamic> json) {
     switch (json['type']) {
       case 'gitlab':
@@ -52,11 +52,7 @@ class UpdateSource {
         if (api.isEmpty || project.isEmpty) {
           throw const FormatException('gitlab 源缺 api/project');
         }
-        return UpdateSource.gitlab(
-          api: api,
-          project: project,
-          token: json['token'] as String?,
-        );
+        return UpdateSource.gitlab(api: api, project: project);
       case 'github':
         final repo = json['repo'] as String? ?? '';
         if (repo.isEmpty) {

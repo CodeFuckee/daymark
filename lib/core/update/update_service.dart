@@ -79,7 +79,8 @@ class UpdateService {
     return best;
   }
 
-  /// GitLab：releases 列表（新→旧）中首个含本平台资产的 release
+  /// GitLab：releases 列表（新→旧）中首个含本平台资产的 release。
+  /// 仓库为 public（issue #5 用户确认），匿名访问即可，不携带认证头。
   Future<UpdateInfo?> _checkGitlab(UpdateSource source) async {
     final resp = await _dio.get<dynamic>(
       '${source.api}/projects/${source.project}/releases',
@@ -88,10 +89,6 @@ class UpdateService {
         'order_by': 'released_at',
         'sort': 'desc',
       },
-      options: Options(headers: {
-        if (source.token != null && source.token!.isNotEmpty)
-          'PRIVATE-TOKEN': source.token,
-      }),
     );
     final releases = resp.data as List? ?? [];
     for (final release in releases) {

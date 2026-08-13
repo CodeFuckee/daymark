@@ -13,7 +13,7 @@ void main() {
       expect(config.enabled, isFalse);
     });
 
-    test('GitLab 源完整解析（含只读 token）', () {
+    test('GitLab 源完整解析（旧格式 token 字段容错忽略，public 匿名）', () {
       final config = UpdateConfig.parse(
         b64('[{"type":"gitlab","api":"https://home.chenkaidi.top:509/api/v4",'
             '"project":"chenkaidi%2Fdaymark","token":"glpat-xxx"}]'),
@@ -26,7 +26,6 @@ void main() {
       expect(src.type, 'gitlab');
       expect(src.api, 'https://home.chenkaidi.top:509/api/v4');
       expect(src.project, 'chenkaidi%2Fdaymark');
-      expect(src.token, 'glpat-xxx');
     });
 
     test('GitHub 源完整解析', () {

@@ -23,8 +23,10 @@
 - `scripts/daymark.nsi` 支持 `/S` 静默与 `/UPDATE` 更新模式（安装前等待旧进程
   退出，安装完成后自动启动新版本）；GitHub Actions `build.yml` tag 触发时
   注入版本与 GitHub 更新源
-- GitLab 私有仓库更新检测内置只读 token：CI variable `GITLAB_READ_API_TOKEN`
-  （read_api 权限即可）在构建时注入产物，README 已说明风险
+- 更新源改用 public 匿名访问（issue #5 用户反馈）：仓库已公开，不再内置只读
+  token——`update_defines.py` 停止注入、`UpdateSource` 移除 token 字段（旧格式
+  JSON 容错忽略）、检测请求不再携带认证头；CI variable `GITLAB_READ_API_TOKEN`
+  不再使用（可自行删除）
 
 ### 修复
 

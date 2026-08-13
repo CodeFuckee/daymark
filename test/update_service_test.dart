@@ -13,6 +13,8 @@ class FakeAdapter implements HttpClientAdapter {
   /// url 片段 → (状态码, 内容)。内容为 `List<int>` 时按字节流返回。
   final Map<String, (int, Object)> routes;
   final List<String> requested = [];
+  /// 每次请求携带的 headers（断言认证头用）
+  final List<Map<String, dynamic>> requestedHeaders = [];
 
   FakeAdapter(this.routes);
 
@@ -20,6 +22,7 @@ class FakeAdapter implements HttpClientAdapter {
   Future<ResponseBody> fetch(RequestOptions options,
       Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
     requested.add(options.uri.toString());
+    requestedHeaders.add(options.headers);
     for (final entry in routes.entries) {
       if (options.uri.toString().contains(entry.key)) {
         final (code, body) = entry.value;
@@ -126,7 +129,7 @@ void main() {
       expect(adapter.requested.first, contains('/projects/chenkaidi%2Fdaymark/releases'));
     });
 
-    test('GitLab 源：带 token 时请求头携带 PRIVATE-TOKEN', () async {
+    test('GitLab 源：请求匿名不带认证头（public 仓库，旧格式 token 字段被忽略）', () async {
       final adapter = FakeAdapter({
         '/projects/chenkaidi%2Fdaymark/releases': (
           200,
@@ -139,14 +142,17 @@ void main() {
             'type': 'gitlab',
             'api': 'https://home.chenkaidi.top:509/api/v4',
             'project': 'chenkaidi%2Fdaymark',
+            // v0.1.4 及以前产物注入的旧格式字段；public 仓库后忽略，不得携带认证头
             'token': 'glpat-readonly',
           },
         ]),
         dio: Dio()..httpClientAdapter = adapter,
       );
-      await service.check();
-      final sent = adapter.requested.first;
-      expect(sent, contains('releases'));
+      final info = await service.check();
+      expect(info!.version, '0.1.4');
+      final sentHeaders = adapter.requestedHeaders.first;
+      expect(sentHeaders.containsKey('PRIVATE-TOKEN'), isFalse,
+          reason: 'public 仓库匿名访问，不应携带认证头');
     });
 
     test('GitHub 源：latest release 解析（含 digest）', () async {

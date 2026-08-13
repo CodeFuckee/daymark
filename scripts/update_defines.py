@@ -8,11 +8,11 @@
 #   python3 scripts/update_defines.py --version X.Y.Z [--gitlab | --github] [--repo owner/repo]
 #
 # 源 JSON 结构（应用内 UpdateConfig.parse 解析，base64 避免转义问题）:
-#   [{"type":"gitlab","api":"https://host/api/v4","project":"ns%2Fproj","token":"..."}]
+#   [{"type":"gitlab","api":"https://host/api/v4","project":"ns%2Fproj"}]
 #   [{"type":"github","repo":"owner/repo"}]
 #
-# GitLab 源自动取 CI 环境（CI_SERVER_URL/CI_PROJECT_PATH）；token 从
-# GITLAB_READ_API_TOKEN 读取（只读 token，private 仓库 release 检测必需）。
+# GitLab 源自动取 CI 环境（CI_SERVER_URL/CI_PROJECT_PATH）。仓库为 public
+# （issue #5 用户确认）→ 不内置 token，更新检测/下载全部匿名访问。
 
 import argparse
 import base64
@@ -24,14 +24,12 @@ import urllib.parse
 def gitlab_source():
     host = os.environ.get("CI_SERVER_URL", "").rstrip("/")
     path = os.environ.get("CI_PROJECT_PATH", "")
-    token = os.environ.get("GITLAB_READ_API_TOKEN", "")
     if not host or not path:
         raise SystemExit("--gitlab 需要 CI_SERVER_URL / CI_PROJECT_PATH 环境变量")
     return {
         "type": "gitlab",
         "api": f"{host}/api/v4",
         "project": urllib.parse.quote(path, safe=""),
-        "token": token,
     }
 
 

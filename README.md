@@ -135,12 +135,10 @@ asset digest）→ 下载完成系统通知 + 设置页提示 → 用户重启�
 最新 tag patch+1），构建产物经 `--build-name` 内嵌同一版本，`publish-release`
 发布同一 tag——产物版本与 release tag 严格一致，更新检测按 semver 比较。
 
-**GitLab 私有仓库只读 token**：daymark 的 GitLab 仓库为 private，更新检测
-需要内置只读 token。在 GitLab 项目 **Settings → CI/CD → Variables** 配置
-`GITLAB_READ_API_TOKEN`（个人访问令牌，勾选 `read_api` 即可），CI 构建时
-会注入到产物。**该 token 会随产物分发**（任何拿到安装包的人都可读取仓库），
-请只给最小只读权限；不配置则产物不带 token，GitLab 源的更新检测不可用
-（GitHub 源不受影响）。
+**公开仓库匿名访问**：daymark 的 GitLab 仓库为 public（issue #5 用户确认），
+更新检测（releases API）与产物下载（generic packages）全部匿名访问，产物
+不内置任何 token。历史上配置的 CI variable `GITLAB_READ_API_TOKEN` 已不再
+被读取，可自行删除。若未来仓库转回 private，需恢复 token 注入机制。
 
 ## 已知限制
 
