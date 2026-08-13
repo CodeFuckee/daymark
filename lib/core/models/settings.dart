@@ -82,8 +82,9 @@ class AppSettings {
         codeInstances: (json['codeInstances'] as List? ?? [])
             .map((e) => CodeInstance.fromJson(e as Map<String, dynamic>))
             .toList(),
-        watchDirs: (json['watchDirs'] as List? ?? []).cast<String>(),
-        excludePatterns: (json['excludePatterns'] as List? ?? []).cast<String>(),
+        watchDirs: List<String>.from(json['watchDirs'] as List? ?? const []),
+        excludePatterns:
+            List<String>.from(json['excludePatterns'] as List? ?? const []),
         audioDir: json['audioDir'] as String? ?? '',
         transcript: TranscriptSettings.fromJson(
             json['transcript'] as Map<String, dynamic>? ?? {}),
@@ -167,7 +168,8 @@ class TranscriptSettings {
         baseUrl: json['baseUrl'] as String? ?? '',
         apiKey: json['apiKey'] as String? ?? '',
         model: json['model'] as String? ?? 'whisper-1',
-        extensions: (json['extensions'] as List? ?? []).cast<String>(),
+        extensions:
+            List<String>.from(json['extensions'] as List? ?? const []),
       );
 }
 
@@ -224,10 +226,10 @@ class AiSettings {
 
   factory AiSettings.fromJson(Map<String, dynamic> json) => AiSettings(
         provider: json['provider'] as String? ?? '',
-        fallback: (json['fallback'] as List? ?? []).cast<String>(),
+        fallback: List<String>.from(json['fallback'] as List? ?? const []),
         tone: json['tone'] as String? ?? '',
-        conferenceBlocked:
-            (json['conferenceBlocked'] as List? ?? ['claude']).cast<String>(),
+        conferenceBlocked: List<String>.from(
+            json['conferenceBlocked'] as List? ?? const ['claude']),
         claudeBaseUrl: json['claudeBaseUrl'] as String? ?? 'https://api.anthropic.com',
         claudeApiKey: json['claudeApiKey'] as String? ?? '',
         claudeModel: json['claudeModel'] as String? ?? 'claude-sonnet-5',
@@ -263,7 +265,8 @@ class HotkeySettings {
       };
 
   factory HotkeySettings.fromJson(Map<String, dynamic> json) => HotkeySettings(
-        modifiers: (json['modifiers'] as List? ?? ['Ctrl', 'Shift']).cast<String>(),
+        modifiers:
+            List<String>.from(json['modifiers'] as List? ?? const ['Ctrl', 'Shift']),
         key: json['key'] as String? ?? 'KeyL',
         autoLaunch: json['autoLaunch'] as bool? ?? false,
       );

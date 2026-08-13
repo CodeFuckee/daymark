@@ -63,6 +63,8 @@ dev_dependencies:
     sdk: flutter
   # 测试中注入 PathProviderPlatform fake（settings_service_test 用）
   path_provider_platform_interface: ^2.1.2
+  # 测试中注入 FileSelectorPlatform fake（目录监控选择器测试用）
+  file_selector_platform_interface: ^2.7.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

@@ -481,6 +481,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
+  /// 添加目录/列表项输入行（issue #11）：右侧按钮弹出系统目录选择器，
+  /// 选中即加入列表；输入框保留手动输入（回车添加）。
   Widget _dirAddField(String label, void Function(String) onAdd) {
     final controller = TextEditingController();
     return Padding(
@@ -492,14 +494,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               controller: controller,
               decoration:
                   InputDecoration(labelText: label, border: const OutlineInputBorder()),
+              onSubmitted: (v) {
+                onAdd(v);
+                controller.clear();
+              },
             ),
           ),
           const SizedBox(width: 8),
           IconButton(
-            tooltip: '添加',
-            icon: const Icon(Icons.add),
-            onPressed: () {
-              onAdd(controller.text);
+            tooltip: '选择目录',
+            icon: const Icon(Icons.folder_open),
+            onPressed: () async {
+              final picked = await _pickDirectory('');
+              if (picked.isEmpty) return; // 用户取消选择
+              onAdd(picked);
               controller.clear();
             },
           ),
