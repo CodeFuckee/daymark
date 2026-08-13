@@ -1,8 +1,10 @@
 /// 设置服务（DESIGN.md §5.8）：settings.json 读写 + token 密钥库。
 ///
 /// - 主配置存 `<logRoot>/.daymark/settings.json`（设计文档目录结构）
-/// - logRoot 未配置时用应用支持目录的引导文件；logRoot 确定后镜像同步，
-///   保证下次启动能找回 logRoot
+/// - 镜像两处：应用支持目录的引导文件 + 用户主目录稳定镜像
+///   `~/.daymark/settings.json`（issue #10：应用支持目录是平台元数据派生的
+///   不稳定路径——Linux 依赖可执行文件名/DBus 应用 ID、macOS 依赖 bundle id，
+///   软件更新后解析结果可能漂移，主目录镜像作为找回 logRoot 的兜底）
 /// - token 一律不落 settings.json：flutter_secure_storage（Keychain/libsecret）
 ///   不可用时降级到 `<logRoot>/.daymark/.secrets.json`（600 权限）
 library;
@@ -19,9 +21,14 @@ import '../util/markdown_util.dart';
 class SettingsService {
   final FlutterSecureStorage _storage;
   AppSettings settings;
+  /// 用户主目录提供者（测试注入；null → 环境变量 HOME/USERPROFILE）
+  final Future<String> Function()? homeDirProvider;
 
-  SettingsService({FlutterSecureStorage? storage, AppSettings? initial})
-      : _storage = storage ?? const FlutterSecureStorage(),
+  SettingsService({
+    FlutterSecureStorage? storage,
+    AppSettings? initial,
+    this.homeDirProvider,
+  })  : _storage = storage ?? const FlutterSecureStorage(),
         settings = initial ?? AppSettings.defaults();
 
   /// 主配置路径（logRoot 未配置时用应用支持目录）
@@ -33,26 +40,61 @@ class SettingsService {
     return '${dir.path}/settings.json';
   }
 
+  /// 用户主目录（账号级稳定路径，不依赖可执行文件名/DBus/bundle id）
+  Future<String> _homeDir() async {
+    if (homeDirProvider != null) return homeDirProvider!();
+    final env = Platform.environment;
+    return env['HOME'] ?? env['USERPROFILE'] ?? '';
+  }
+
+  /// 稳定镜像路径：`~/.daymark/settings.json`（主目录不可得时为 null）
+  Future<String?> _stableMirrorPath() async {
+    final home = await _homeDir();
+    if (home.isEmpty) return null;
+    return '$home/.daymark/settings.json';
+  }
+
   Future<void> load() async {
-    // 1. 引导文件：找回上次的 logRoot
-    final supportDir = await getApplicationSupportDirectory();
-    final bootstrap = File('${supportDir.path}/settings.json');
-    if (await bootstrap.exists()) {
-      try {
-        final json = jsonDecode(await bootstrap.readAsString()) as Map<String, dynamic>;
-        settings = AppSettings.fromJson(json);
-      } catch (_) {
-        // 损坏则用默认值
+    // 1. 支持目录引导文件：找回上次的 logRoot
+    AppSettings? fallback;
+    try {
+      final supportDir = await getApplicationSupportDirectory();
+      final bootstrap = File('${supportDir.path}/settings.json');
+      if (await bootstrap.exists()) {
+        try {
+          final json =
+              jsonDecode(await bootstrap.readAsString()) as Map<String, dynamic>;
+          fallback = AppSettings.fromJson(json);
+        } catch (_) {
+          // 损坏则继续尝试其他来源
+        }
+      }
+    } catch (_) {}
+    // 2. 主目录稳定镜像（issue #10）：支持目录漂移时找回设置的兜底
+    if (fallback == null) {
+      final mirrorPath = await _stableMirrorPath();
+      if (mirrorPath != null) {
+        final mirror = File(mirrorPath);
+        if (await mirror.exists()) {
+          try {
+            final json =
+                jsonDecode(await mirror.readAsString()) as Map<String, dynamic>;
+            fallback = AppSettings.fromJson(json);
+          } catch (_) {
+            // 损坏则用默认值
+          }
+        }
       }
     }
-    // 2. 主配置（logRoot 就绪后）
+    if (fallback != null) settings = fallback;
+    // 3. 主配置（logRoot 就绪后）
     final main = File(await _mainPath());
     if (await main.exists()) {
       try {
         final json = jsonDecode(await main.readAsString()) as Map<String, dynamic>;
         settings = AppSettings.fromJson(json);
       } catch (_) {
-        // 主配置损坏：保留引导文件读到的值
+        // 主配置损坏：保留镜像读到的值
       }
     }
   }
@@ -63,7 +105,14 @@ class SettingsService {
     final main = File(await _mainPath());
     await main.parent.create(recursive: true);
     await main.writeAsString(json);
-    // 引导镜像（应用目录）
+    // 主目录稳定镜像（issue #10：软件更新后找回设置的兜底）
+    final mirrorPath = await _stableMirrorPath();
+    if (mirrorPath != null) {
+      final mirror = File(mirrorPath);
+      await mirror.parent.create(recursive: true);
+      await mirror.writeAsString(json);
+    }
+    // 支持目录引导镜像
     final supportDir = await getApplicationSupportDirectory();
     final bootstrap = File('${supportDir.path}/settings.json');
     await bootstrap.parent.create(recursive: true);
