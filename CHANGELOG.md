@@ -13,7 +13,8 @@
   判定空与 null 不匹配），加载 `@rpath/daymark_core.framework` 仍报
   "different Team IDs" 闪退 → 现在仅真实证书签名启用 Hardened Runtime，ad-hoc
   签名跳过（OpenClaw/electron-builder 等项目的 ad-hoc 构建同样做法）；Team ID
-  一致性校验保留
+  一致性校验保留。签名参数用字符串变量承载（CI macOS runner 为 bash 3.2，
+  空数组在 `set -u` 下展开报 unbound variable）
 - macOS 构建产物启动闪退（issue #4）：`scripts/sign_macos.sh` 此前只签名
   `Contents/Frameworks/*.dylib` 与 `.app`，跳过了 `.framework`（daymark_core.framework
   保留 Xcode 构建期签名，与 .app 的 ad-hoc 签名 Team ID 不一致，dyld 加载

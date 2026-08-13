@@ -30,9 +30,11 @@ IDENTITY="${1:--}"
 # 而 ad-hoc 无 Team ID（空 vs null 不匹配），macOS 15+ 直接拒绝加载
 # @rpath/daymark_core.framework → 启动闪退（issue #4 第二轮，v0.1.1 签名全一致
 # 仍崩即此因）。OpenClaw/electron-builder 等项目的 ad-hoc 构建同样跳过 runtime。
-SIGN_OPTS=()
+# 注意用字符串而非数组：CI 的 macOS runner 是 bash 3.2，空数组在 set -u 下
+# 展开报 "unbound variable"（bash 4.4+ 才修复），字符串变量无此问题。
+SIGN_OPTS=""
 if [ "$IDENTITY" != "-" ]; then
-  SIGN_OPTS=(--options runtime)
+  SIGN_OPTS="--options runtime"
 fi
 
 if [ ! -d "$APP" ]; then
@@ -43,7 +45,8 @@ fi
 echo "==> 签名 Frameworks 内的动态库（含 Rust core dylib）"
 for f in "$APP"/Contents/Frameworks/*.dylib; do
   [ -f "$f" ] || continue
-  codesign --force --sign "$IDENTITY" "${SIGN_OPTS[@]}" "$f"
+  # shellcheck disable=SC2086  # $SIGN_OPTS 为空或固定 "--options runtime"，需按词拆分
+  codesign --force --sign "$IDENTITY" $SIGN_OPTS "$f"
 done
 
 # 关键：签名 .framework（daymark_core.framework 等）。此前只签 .dylib 与 .app，
@@ -53,11 +56,13 @@ done
 echo "==> 签名 Frameworks 内的 .framework（含 Rust core framework）"
 for f in "$APP"/Contents/Frameworks/*.framework; do
   [ -d "$f" ] || continue
-  codesign --force --deep --sign "$IDENTITY" "${SIGN_OPTS[@]}" "$f"
+  # shellcheck disable=SC2086  # $SIGN_OPTS 为空或固定 "--options runtime"，需按词拆分
+  codesign --force --deep --sign "$IDENTITY" $SIGN_OPTS "$f"
 done
 
 echo "==> 签名 .app（identity: $IDENTITY）"
-codesign --force --sign "$IDENTITY" "${SIGN_OPTS[@]}" "$APP"
+# shellcheck disable=SC2086  # $SIGN_OPTS 为空或固定 "--options runtime"，需按词拆分
+codesign --force --sign "$IDENTITY" $SIGN_OPTS "$APP"
 
 echo "==> 验证签名"
 codesign --verify --deep --strict "$APP"
