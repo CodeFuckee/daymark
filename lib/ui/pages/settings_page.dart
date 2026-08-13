@@ -309,6 +309,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               }),
             ),
           ]),
+          _updateSection(),
           const SizedBox(height: 24),
         ],
       ),
@@ -322,6 +323,90 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
     'Space', 'Enter', 'Tab', 'Escape',
   ];
+
+  /// 更新区块（issue #5）：当前版本 + 检查更新 + 状态 + 重启并更新 + 自动检查开关
+  Widget _updateSection() {
+    final updateStatus =
+        ref.watch(appControllerProvider.select((s) => s.updateStatus));
+    final controller = ref.read(appControllerProvider.notifier);
+    final version = controller.updateConfig.appVersion;
+
+    final Widget statusTile;
+    switch (updateStatus.phase) {
+      case UpdatePhase.checking:
+        statusTile = const ListTile(
+          leading: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          title: Text('正在检查更新…'),
+        );
+      case UpdatePhase.available:
+        statusTile = ListTile(
+          leading: const Icon(Icons.cloud_download_outlined),
+          title: Text('发现新版本 ${updateStatus.version}，准备下载…'),
+        );
+      case UpdatePhase.downloading:
+        final percent =
+            ((updateStatus.progress ?? 0) * 100).clamp(0, 100).round();
+        statusTile = ListTile(
+          leading: const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          title: Text('正在后台下载新版本 ${updateStatus.version}… $percent%'),
+        );
+      case UpdatePhase.ready:
+        statusTile = ListTile(
+          leading: const Icon(Icons.download_done, color: Colors.green),
+          title: Text('新版本 ${updateStatus.version} 已下载完成'),
+          subtitle: const Text('重启软件时自动完成更新'),
+        );
+      case UpdatePhase.error:
+        statusTile = ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: Text(updateStatus.message ?? ''),
+        );
+      case UpdatePhase.idle:
+        statusTile = ListTile(
+          leading: const Icon(Icons.system_update_alt),
+          title: Text(
+            version == null
+                ? '当前构建未包含更新源（本地开发构建不参与更新）'
+                : '当前版本 v$version',
+          ),
+        );
+    }
+
+    final busy = updateStatus.phase == UpdatePhase.checking ||
+        updateStatus.phase == UpdatePhase.downloading;
+
+    return _section('更新', [
+      statusTile,
+      if (updateStatus.phase == UpdatePhase.ready)
+        FilledButton.icon(
+          onPressed: () => controller.restartToUpdate(),
+          icon: const Icon(Icons.restart_alt),
+          label: const Text('重启并更新'),
+        )
+      else
+        OutlinedButton.icon(
+          onPressed: busy ? null : () => controller.checkForUpdates(),
+          icon: const Icon(Icons.refresh),
+          label: Text(busy ? '处理中…' : '检查更新'),
+        ),
+      SwitchListTile(
+        title: const Text('启动时自动检查更新（发现新版自动后台下载）'),
+        value: _draft.update.autoCheck,
+        onChanged: (v) => setState(() {
+          _draft.update.autoCheck = v;
+          _dirty = true;
+        }),
+      ),
+    ]);
+  }
 
   Widget _section(String title, List<Widget> children) {
     return Padding(

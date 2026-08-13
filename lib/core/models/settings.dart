@@ -33,6 +33,9 @@ class AppSettings {
   // ── 通知 ──
   NotificationSettings notification;
 
+  // ── 更新 ──
+  UpdateSettings update;
+
   AppSettings({
     this.logRoot = '',
     this.authorName = '',
@@ -45,10 +48,12 @@ class AppSettings {
     AiSettings? ai,
     HotkeySettings? hotkey,
     NotificationSettings? notification,
+    UpdateSettings? update,
   })  : transcript = transcript ?? TranscriptSettings(),
         ai = ai ?? AiSettings(),
         hotkey = hotkey ?? HotkeySettings(),
-        notification = notification ?? NotificationSettings();
+        notification = notification ?? NotificationSettings(),
+        update = update ?? UpdateSettings();
 
   factory AppSettings.defaults() => AppSettings();
 
@@ -67,6 +72,7 @@ class AppSettings {
         'ai': ai.toJson(),
         'hotkey': hotkey.toJson(),
         'notification': notification.toJson(),
+        'update': update.toJson(),
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -85,6 +91,7 @@ class AppSettings {
         hotkey: HotkeySettings.fromJson(json['hotkey'] as Map<String, dynamic>? ?? {}),
         notification: NotificationSettings.fromJson(
             json['notification'] as Map<String, dynamic>? ?? {}),
+        update: UpdateSettings.fromJson(json['update'] as Map<String, dynamic>? ?? {}),
       );
 }
 
@@ -283,4 +290,18 @@ class NotificationSettings {
         reminderTime: json['reminderTime'] as String? ?? '18:30',
         completionNotification: json['completionNotification'] as bool? ?? true,
       );
+}
+
+/// 自动更新设置（issue #5）。
+/// 更新源与版本是构建期注入的（只读），运行时仅此一个开关。
+class UpdateSettings {
+  /// 启动时自动检查更新（检测到新版自动后台下载）
+  bool autoCheck;
+
+  UpdateSettings({this.autoCheck = true});
+
+  Map<String, dynamic> toJson() => {'autoCheck': autoCheck};
+
+  factory UpdateSettings.fromJson(Map<String, dynamic> json) =>
+      UpdateSettings(autoCheck: json['autoCheck'] as bool? ?? true);
 }

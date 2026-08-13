@@ -17,11 +17,47 @@ import '../core/services/notification_service.dart';
 import '../core/services/record_service.dart';
 import '../core/services/report_service.dart';
 import '../core/services/settings_service.dart';
+import '../core/update/update_config.dart';
+import '../core/update/update_installer.dart';
+import '../core/update/update_models.dart';
+import '../core/update/update_service.dart';
 import '../core/util/date_util.dart';
 import '../src/rust/api/hotkey.dart' as frb_hotkey;
 
 /// 窗口模式：主窗口 / 随手记录弹窗
 enum WindowMode { main, quickNote }
+
+/// 更新阶段（设置页展示）
+enum UpdatePhase { idle, checking, available, downloading, ready, error }
+
+/// 更新状态（issue #5）
+class UpdateStatus {
+  final UpdatePhase phase;
+  /// 新版本 tag（available/downloading/ready 时非空）
+  final String? version;
+  /// 下载进度 0~1
+  final double? progress;
+  /// 错误/提示信息
+  final String? message;
+
+  const UpdateStatus({
+    this.phase = UpdatePhase.idle,
+    this.version,
+    this.progress,
+    this.message,
+  });
+
+  const UpdateStatus.checking()
+      : this(phase: UpdatePhase.checking);
+  const UpdateStatus.available(String tag)
+      : this(phase: UpdatePhase.available, version: tag);
+  const UpdateStatus.downloading(String tag, double progress)
+      : this(phase: UpdatePhase.downloading, version: tag, progress: progress);
+  const UpdateStatus.ready(String tag)
+      : this(phase: UpdatePhase.ready, version: tag);
+  const UpdateStatus.error(String msg)
+      : this(phase: UpdatePhase.error, message: msg);
+}
 
 class AppState {
   final AppSettings settings;
@@ -29,6 +65,7 @@ class AppState {
   final WindowMode windowMode;
   final String? hotkeyError;
   final String? lastNotification;
+  final UpdateStatus updateStatus;
 
   /// 热键弹窗当前输入
   final String quickNoteInput;
@@ -41,6 +78,7 @@ class AppState {
     this.windowMode = WindowMode.main,
     this.hotkeyError,
     this.lastNotification,
+    this.updateStatus = const UpdateStatus(),
     this.quickNoteInput = '',
     this.tags = const [],
   }) : settings = settings ?? AppSettings();
@@ -51,6 +89,7 @@ class AppState {
     WindowMode? windowMode,
     String? hotkeyError,
     String? lastNotification,
+    UpdateStatus? updateStatus,
     String? quickNoteInput,
     List<String>? tags,
     bool clearHotkeyError = false,
@@ -63,6 +102,7 @@ class AppState {
         hotkeyError: clearHotkeyError ? null : (hotkeyError ?? this.hotkeyError),
         lastNotification:
             clearNotification ? null : (lastNotification ?? this.lastNotification),
+        updateStatus: updateStatus ?? this.updateStatus,
         quickNoteInput: quickNoteInput ?? this.quickNoteInput,
         tags: tags ?? this.tags,
       );
@@ -78,8 +118,12 @@ class AppController extends Notifier<AppState> {
   late CollectService collectService;
   late ReportService reportService;
   late NotificationService notificationService;
+  /// 更新配置（构建期注入；未注入 → 禁用）
+  late UpdateConfig updateConfig;
+  late UpdateService updateService;
 
   StreamSubscription<int>? _hotkeySub;
+  bool _updateChecking = false;
 
   /// 窗口控制回调（由 main.dart 注入，避免 ui 层依赖 window_manager 细节）
   void Function(WindowMode mode)? onWindowModeChanged;
@@ -94,6 +138,9 @@ class AppController extends Notifier<AppState> {
       collector: collectService,
     );
     notificationService = NotificationService();
+    // 更新服务（构建期 dart-define 注入源与版本）
+    updateConfig = UpdateConfig.fromEnvironment();
+    updateService = UpdateService(config: updateConfig);
     // 注入 token 读取
     collectService.tokenProvider = (id) => settingsService.getToken(id);
 
@@ -109,6 +156,10 @@ class AppController extends Notifier<AppState> {
     await _startWatching();
     await _syncAutoLaunch();
     state = state.copyWith(settingsLoaded: true, tags: []);
+    // 启动时自动检查更新（构建期注入了更新源且用户开启自动检查）
+    if (updateConfig.enabled && state.settings.update.autoCheck) {
+      checkForUpdates();
+    }
   }
 
   /// 设置变更后重建服务（服务持有 settings 引用）
@@ -295,6 +346,93 @@ class AppController extends Notifier<AppState> {
       await notificationService.show(title: '月报已生成', body: '${monthKey(date)} 月报已写入。');
     }
     return (draft != null, draft);
+  }
+
+  // ─────────────────────────── 自动更新（issue #5） ───────────────────────────
+
+  /// 检查更新；发现新版自动后台下载，完成后通知并置为 ready（重启时自动安装）
+  Future<void> checkForUpdates() async {
+    if (_updateChecking) return;
+    if (!updateConfig.enabled) {
+      state = state.copyWith(
+        updateStatus: const UpdateStatus.error('当前构建未包含更新源（本地开发构建）'),
+      );
+      return;
+    }
+    _updateChecking = true;
+    state = state.copyWith(updateStatus: const UpdateStatus.checking());
+    try {
+      final info = await updateService.check();
+      if (info == null) {
+        state = state.copyWith(
+          updateStatus: UpdateStatus.error(
+            '已是最新版本（v${updateConfig.appVersion}）',
+          ),
+        );
+        return;
+      }
+      state = state.copyWith(updateStatus: UpdateStatus.available(info.tag));
+      await _downloadUpdate(info);
+    } catch (e) {
+      debugPrint('[daymark] update check error: $e');
+      state = state.copyWith(
+        updateStatus: UpdateStatus.error('检查更新失败：$e'),
+      );
+    } finally {
+      _updateChecking = false;
+    }
+  }
+
+  /// 后台下载更新包（下载完成才提示用户——issue 要求）
+  Future<void> _downloadUpdate(UpdateInfo info) async {
+    state = state.copyWith(
+      updateStatus: UpdateStatus.downloading(info.tag, 0),
+    );
+    try {
+      final manifest = await updateService.download(
+        info,
+        onProgress: (progress) {
+          state = state.copyWith(
+            updateStatus: UpdateStatus.downloading(info.tag, progress),
+          );
+        },
+      );
+      state = state.copyWith(
+        updateStatus: UpdateStatus.ready(manifest.version),
+      );
+      await notificationService.show(
+        title: '发现新版本 ${info.tag}',
+        body: '已在后台下载完成，重启软件后自动完成更新。',
+      );
+    } catch (e) {
+      debugPrint('[daymark] update download error: $e');
+      state = state.copyWith(
+        updateStatus: UpdateStatus.error('下载更新失败：$e'),
+      );
+    }
+  }
+
+  /// 重启并安装更新（Linux/macOS 安装后自动重启进入新版；Windows 启动安装器）
+  Future<void> restartToUpdate() async {
+    final manifest = await updateService.loadManifest();
+    if (manifest == null) {
+      state = state.copyWith(
+        updateStatus: const UpdateStatus.error('未找到已下载的更新包，请重新检查更新'),
+      );
+      return;
+    }
+    final installer = UpdateInstaller();
+    final ok = await installer.install(
+      manifest,
+      await updateService.updateDir(),
+    );
+    if (!ok) {
+      // unsupported（如非 AppImage 环境）：提示手动更新
+      final plan = installer.plan();
+      state = state.copyWith(
+        updateStatus: UpdateStatus.error(plan.reason ?? '当前环境不支持自动安装，请手动下载新版本'),
+      );
+    }
   }
 
   // ─────────────────────────── 通知 ───────────────────────────

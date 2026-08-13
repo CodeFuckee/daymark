@@ -224,7 +224,11 @@ def main():
         raise RuntimeError("GitLab API 配置缺失（GITLAB_API_URL/GITLAB_JOB_TOKEN/GITLAB_PROJECT）")
     sha = os.environ.get("CI_COMMIT_SHORT_SHA", "unknown")
 
-    version = next_version()
+    # CI 流水线内由 prepare-version job 传入（与构建产物内嵌版本严格一致，
+    # 自动更新比较的前提）；本地/无参数运行时仍自动递增
+    version = os.environ.get("RELEASE_VERSION", "")
+    if not version:
+        version = next_version()
     print(f"==> 发布版本 {version}（来源 GitLab {sha}，构建时间 {fmt_build_time()}）")
 
     publish_gitlab(version, sha)

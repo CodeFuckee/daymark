@@ -19,8 +19,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> 构建 macOS release"
-flutter build macos --release
+# 自动更新注入（issue #5）：CI 由 prepare-version dotenv 提供环境变量
+BUILD_ARGS=""
+[ -n "${APP_VERSION:-}" ] && BUILD_ARGS="$BUILD_ARGS --build-name $APP_VERSION"
+[ -n "${DART_DEFINES:-}" ] && BUILD_ARGS="$BUILD_ARGS $DART_DEFINES"
+
+echo "==> 构建 macOS release$BUILD_ARGS"
+# shellcheck disable=SC2086  # $BUILD_ARGS 由环境变量注入，需按词拆分
+flutter build macos --release $BUILD_ARGS
 
 APP="build/macos/Build/Products/Release/daymark.app"
 IDENTITY="${1:--}"

@@ -26,15 +26,39 @@ InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "InstallLocation"
 RequestExecutionLevel admin
 
+; Auto-update (issue #5): app starts installer with /S /UPDATE (silent overwrite
+; install), app exits right before; wait a moment so the old process fully
+; terminates and its exe/dll files are released before File overwrite.
+; ${GetOptions} comes from FileFunc.nsh, ${If} from LogicLib.nsh.
+!include "FileFunc.nsh"
+!insertmacro GetOptions
+!include "LogicLib.nsh"
+
+Var /GLOBAL IsUpdateMode
+
+Function .onInit
+  ${GetOptions} $CMDLINE "/UPDATE" $R0
+  IfErrors +2
+  StrCpy $IsUpdateMode "1"
+FunctionEnd
+
 Page directory
 Page instfiles
 UninstPage uninstConfirm
 UninstPage instfiles
 
 Section "Install ${APP_NAME}"
+  ${If} $IsUpdateMode == "1"
+    Sleep 800
+  ${EndIf}
   SetOutPath "$INSTDIR"
   ; Entire Flutter Release folder (exe + dll + data/)
   File /r "${RELEASE_DIR}\*"
+
+  ; Update mode: auto start the new version after silent install
+  ${If} $IsUpdateMode == "1"
+    Exec '"$INSTDIR\daymark.exe"'
+  ${EndIf}
 
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\daymark.exe"

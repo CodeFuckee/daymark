@@ -53,6 +53,7 @@ class _DaymarkAppState extends ConsumerState<DaymarkApp>
         MenuItem(key: 'open', label: '打开 Daymark'),
         MenuItem(key: 'quickNote', label: '新建记录'),
         MenuItem(key: 'generateDaily', label: '生成今日日报'),
+        MenuItem(key: 'checkUpdate', label: '检查更新'),
         MenuItem.separator(),
         MenuItem(key: 'quit', label: '退出'),
       ]));
@@ -80,6 +81,9 @@ class _DaymarkAppState extends ConsumerState<DaymarkApp>
         controller.openQuickNote();
       case 'generateDaily':
         controller.generateDaily(DateTime.now());
+      case 'checkUpdate':
+        controller.showMainWindow();
+        controller.checkForUpdates();
       case 'quit':
         windowManager.destroy();
     }

@@ -8,6 +8,9 @@
 # 依赖（CI 已装）：cmake ninja-build clang pkg-config imagemagick（可选）binutils file
 # 用法: ./scripts/build_appimage.sh
 # 产物: daymark-x86_64.AppImage（仓库根目录）
+# 环境变量（issue #5 自动更新注入，CI 由 prepare-version dotenv 提供）:
+#   APP_VERSION   产物版本 X.Y.Z（--build-name，与 release tag 一致）
+#   DART_DEFINES  dart-define 参数串（如 --dart-define=DAYMARK_APP_VERSION=0.1.3 ...）
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,8 +18,13 @@ cd "$(dirname "$0")/.."
 ARCH="x86_64"
 OUT="daymark-${ARCH}.AppImage"
 
-echo "==> flutter build linux --release"
-flutter build linux --release
+BUILD_ARGS=""
+[ -n "${APP_VERSION:-}" ] && BUILD_ARGS="$BUILD_ARGS --build-name $APP_VERSION"
+[ -n "${DART_DEFINES:-}" ] && BUILD_ARGS="$BUILD_ARGS $DART_DEFINES"
+
+echo "==> flutter build linux --release$BUILD_ARGS"
+# shellcheck disable=SC2086  # $BUILD_ARGS 由环境变量注入，需按词拆分
+flutter build linux --release $BUILD_ARGS
 
 BUNDLE="build/linux/x64/release/bundle"
 if [ ! -d "$BUNDLE" ]; then

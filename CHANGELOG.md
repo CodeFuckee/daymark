@@ -4,6 +4,28 @@
 
 ## Unreleased
 
+### 新增
+
+- 自动更新功能（issue #5）：打包时经 `--dart-define` 把更新源写入软件
+  （GitLab 打包检测 GitLab release，GitHub 打包检测 GitHub release，多源取
+  版本最高者）；启动时后台检测新版本 → 自动下载（sha256 校验）→ 下载完成
+  系统通知 + 设置页提示 → 重启软件时自动完成更新（Linux 原子替换 AppImage、
+  macOS 挂载 dmg 后 ditto 覆盖 .app 并清 quarantine、Windows 启动 NSIS
+  `/S /UPDATE` 静默覆盖安装并自动启动新版）。设置页新增更新区块（当前版本 /
+  检查更新 / 下载进度 / 重启并更新 / 自动检查开关），托盘菜单新增"检查更新"；
+  本地开发构建（未注入更新源）更新功能整体禁用
+- 版本一致性（issue #5 配套）：新增 `scripts/next_version.py`（GitLab releases
+  最新 tag patch+1）与 `scripts/update_defines.py`（生成更新 dart-define）；
+  CI 新增 `prepare-version` job 经 dotenv artifact 把 `APP_VERSION` 与
+  `DART_DEFINES` 传给三平台构建 job，产物经 `--build-name` 内嵌与 release tag
+  一致的版本；`publish-release` 改用构建阶段算好的版本（`version.txt`），
+  不再发布时重复递增（消除产物版本与 release tag 不一致的竞态）
+- `scripts/daymark.nsi` 支持 `/S` 静默与 `/UPDATE` 更新模式（安装前等待旧进程
+  退出，安装完成后自动启动新版本）；GitHub Actions `build.yml` tag 触发时
+  注入版本与 GitHub 更新源
+- GitLab 私有仓库更新检测内置只读 token：CI variable `GITLAB_READ_API_TOKEN`
+  （read_api 权限即可）在构建时注入产物，README 已说明风险
+
 ### 修复
 
 - macOS 构建产物仍闪退（issue #4 第二轮，v0.1.1）：v0.1.1 起 app 与全部嵌入
