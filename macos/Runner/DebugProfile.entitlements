@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!-- issue #10 第二轮：移除 App Sandbox。沙盒导致设置丢失（主目录镜像被拒写、
+     ad-hoc 重签后容器随 cdhash 失效）且自动更新无法替换 /Applications 下的
+     app。个人分发（非 App Store）无沙盒收益。保留 JIT 与 debug 网络权限。 -->
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.network.server</key>

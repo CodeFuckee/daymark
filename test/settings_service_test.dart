@@ -17,6 +17,7 @@
 /// 3. 全部缺失时用默认值，不崩溃。
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:daymark/core/models/settings.dart';
@@ -134,6 +135,75 @@ void main() {
       // 支持目录未漂移 → 仍能从 bootstrap 找回
       expect(reloaded.settings.logRoot, logs.path);
       expect(reloaded.settings.authorName, '赵六');
+    });
+  });
+
+  group('macOS 沙盒与镜像容错（issue #10 第二轮）', () {
+    test('镜像写入失败（如 macOS 沙盒禁写主目录）时不阻断保存，bootstrap 仍落盘', () async {
+      fakeSupportDir(supportA.path);
+      // 主目录"不可写"：home 路径的父级是普通文件 → create(recursive) 必然失败，
+      // 等价于 App Sandbox 下 ~/.daymark 被拒写（Operation not permitted）
+      final blocker = File('${tmp.path}/home-blocker')..writeAsStringSync('x');
+      final service = SettingsService(
+        storage: const FlutterSecureStorage(),
+        homeDirProvider: () async => '${blocker.path}/fake-home',
+      );
+      service.settings = AppSettings(logRoot: logs.path, authorName: '沙盒用户');
+      // 修复前：镜像写入抛 FileSystemException，保存中断、bootstrap 未落盘
+      await service.save();
+
+      expect(File('${logs.path}/.daymark/settings.json').existsSync(), isTrue);
+      final bootstrap = File('${supportA.path}/settings.json');
+      expect(
+        bootstrap.existsSync(),
+        isTrue,
+        reason: '镜像写失败不应阻断 bootstrap 落盘（macOS 沙盒下唯一可用的找回来源）',
+      );
+      final json = jsonDecode(bootstrap.readAsStringSync()) as Map<String, dynamic>;
+      expect(json['logRoot'], logs.path);
+    });
+
+    test('macOS 旧沙盒容器残留 bootstrap 可作为迁移来源找回设置', () async {
+      fakeSupportDir(supportB.path); // 新版本的真实支持目录（尚无文件）
+      // 旧版本（App Sandbox）的 bootstrap 实际落在容器内：
+      final legacy = File(
+        '${home.path}/Library/Containers/com.example.daymark/Data/'
+        'Library/Application Support/com.example.daymark/settings.json',
+      )..createSync(recursive: true);
+      legacy.writeAsStringSync(jsonEncode({
+        'logRoot': logs.path,
+        'authorName': '容器旧数据',
+      }));
+
+      final service = newService();
+      await service.load();
+      expect(
+        service.settings.logRoot,
+        logs.path,
+        reason: '取消沙盒后第一次启动，应从旧容器残留迁移找回 logRoot',
+      );
+      expect(service.settings.authorName, '容器旧数据');
+    });
+
+    test('bootstrap 只含默认值（logRoot 空）时继续尝试镜像，logRoot 非空优先', () async {
+      fakeSupportDir(supportA.path);
+      // 历史遗留：bootstrap 只存了默认值（用户早期未设 logRoot 时的保存）
+      File('${supportA.path}/settings.json').writeAsStringSync(
+          jsonEncode(AppSettings().toJson()));
+      // 镜像里才有真正的 logRoot
+      File('${home.path}/.daymark/settings.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode(
+            AppSettings(logRoot: logs.path, authorName: '镜像数据').toJson()));
+
+      final service = newService();
+      await service.load();
+      expect(
+        service.settings.logRoot,
+        logs.path,
+        reason: 'logRoot 为空的来源不应挡住镜像（修复前 bootstrap 存在即不再尝试镜像）',
+      );
+      expect(service.settings.authorName, '镜像数据');
     });
   });
 

@@ -51,6 +51,21 @@
 - 新增设置持久化回归测试：支持目录漂移（模拟软件更新）后必须从主目录镜像
   找回 logRoot、三处落盘断言、全部缺失用默认值不崩溃、主目录不可得时降级为
   旧行为、主配置损坏回退镜像值
+- 软件更新后设置丢失·macOS 端（issue #10 第二轮）：根因是 macOS 构建启用了
+  App Sandbox（Flutter 模板默认）+ ad-hoc 签名的组合——① 主目录镜像
+  `~/.daymark/settings.json` 在沙盒外被拒写，save() 在镜像步骤抛异常中断，
+  引导文件（bootstrap）来不及落盘；② ad-hoc 签名的 designated requirement
+  绑定 cdhash，每次构建都变化，沙盒容器随更新失效，容器内的 bootstrap 一起
+  丢失；③ load() 只要 bootstrap 能解析（哪怕是 logRoot 为空的默认值）就不再
+  尝试镜像。修复：① 移除 macOS 构建的 App Sandbox（Debug/Release
+  entitlements），个人分发无沙盒收益，且沙盒同时导致自动更新无法替换
+  /Applications 下的 app、logRoot 重启后访问权限不稳定；② save() 镜像写入
+  失败仅记日志、不阻断 bootstrap 落盘；③ load() 依次尝试
+  「支持目录 bootstrap → 主目录镜像 → 旧沙盒容器残留」，取第一个 logRoot
+  非空的来源（旧容器残留路径含 path_provider 追加 bundle id 与否两版，作为
+  取消沙盒后首次启动的一次性迁移来源）
+- 新增 macOS 沙盒容错回归测试：镜像写入失败不阻断保存且 bootstrap 仍落盘、
+  旧沙盒容器残留可作为迁移来源找回 logRoot、logRoot 为空的来源不挡住镜像
 
 ### 新增
 
