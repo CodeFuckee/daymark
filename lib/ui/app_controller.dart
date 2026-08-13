@@ -122,8 +122,20 @@ class AppController extends Notifier<AppState> {
   late UpdateConfig updateConfig;
   late UpdateService updateService;
 
+  /// 运行时重载注入点（测试注入可控 Future；真实实现 = 热键/监控/自启）。
+  /// 抽象出来是为了让 saveSettings 的后台重载可测试（issue #6）。
+  @visibleForTesting
+  late Future<void> Function() reloadHotkey;
+  @visibleForTesting
+  late Future<void> Function() reloadWatcher;
+  @visibleForTesting
+  late Future<void> Function(bool enable) reloadAutoLaunch;
+
   StreamSubscription<int>? _hotkeySub;
   bool _updateChecking = false;
+  /// 后台重载串行链：连续两次保存时后一次的重载等前一次完成，
+  /// 避免 stop/start 监控与热键注销/注册交错。
+  Future<void> _reloadChain = Future.value();
 
   /// 窗口控制回调（由 main.dart 注入，避免 ui 层依赖 window_manager 细节）
   void Function(WindowMode mode)? onWindowModeChanged;
@@ -141,6 +153,10 @@ class AppController extends Notifier<AppState> {
     // 更新服务（构建期 dart-define 注入源与版本）
     updateConfig = UpdateConfig.fromEnvironment();
     updateService = UpdateService(config: updateConfig);
+    // 运行时重载默认走真实实现
+    reloadHotkey = _applyHotkey;
+    reloadWatcher = _startWatching;
+    reloadAutoLaunch = _applyAutoLaunch;
     // 注入 token 读取
     collectService.tokenProvider = (id) => settingsService.getToken(id);
 
@@ -176,13 +192,39 @@ class AppController extends Notifier<AppState> {
   // ─────────────────────────── 设置 ───────────────────────────
 
   Future<void> saveSettings(AppSettings next) async {
+    // 1. 持久化：必须同步等待——写失败要立即反馈给设置页
     settingsService.settings = next;
     await settingsService.save();
     _rebuildServices();
-    await _applyHotkey();
-    await _startWatching();
-    await _applyAutoLaunch(next.hotkey.autoLaunch);
     state = state.copyWith(settings: next);
+    // 2. 运行时重载放后台：热键注册 / 目录监控（大目录递归 watch 可极慢）/
+    //    开机自启任一环节阻塞都会让设置页永远停在"保存中…"（issue #6），
+    //    因此不再同步等待；各环节独立容错，失败只写日志。
+    _reloadChain = _reloadChain.then((_) => _reloadRuntimeAfterSave());
+  }
+
+  /// 测试辅助：等待后台重载链执行完毕
+  @visibleForTesting
+  Future<void> reloadDoneForTest() => _reloadChain;
+
+  /// 保存后的运行时重载（后台串行执行，各环节独立容错、互不拖累）
+  Future<void> _reloadRuntimeAfterSave() async {
+    final autoLaunch = settingsService.settings.hotkey.autoLaunch;
+    try {
+      await reloadHotkey();
+    } catch (e) {
+      debugPrint('[daymark] hotkey reload error: $e');
+    }
+    try {
+      await reloadWatcher();
+    } catch (e) {
+      debugPrint('[daymark] watcher reload error: $e');
+    }
+    try {
+      await reloadAutoLaunch(autoLaunch);
+    } catch (e) {
+      debugPrint('[daymark] auto launch reload error: $e');
+    }
   }
 
   // ─────────────────────────── 全局热键 ───────────────────────────

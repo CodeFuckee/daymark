@@ -52,12 +52,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       _error = null;
     });
     try {
+      // 只等持久化完成；热键/监控/自启由 controller 在后台重载（issue #6：
+      // 重载环节挂起时 UI 也不能卡在"保存中…"）
       await ref.read(appControllerProvider.notifier).saveSettings(_draft);
       if (mounted) {
         setState(() {
           _saving = false;
           _dirty = false;
-          _message = '设置已保存，热键与监控已重新加载';
+          _message = '设置已保存';
         });
       }
     } catch (e) {
