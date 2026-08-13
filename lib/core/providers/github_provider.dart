@@ -77,30 +77,44 @@ class GitHubProvider implements CodeProvider {
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       final list = resp.data as List? ?? [];
-      return list
-          .whereType<Map<String, dynamic>>()
-          .map((c) {
-            final commit = c['commit'] as Map<String, dynamic>? ?? {};
-            final authorObj = commit['author'] as Map<String, dynamic>? ?? {};
-            final commitAuthor = c['author'] as Map<String, dynamic>?;
-            final authDate = DateTime.tryParse(authorObj['date'] as String? ?? '');
-            if (authDate == null || !inNaturalDay(authDate, date)) return null;
-            final name = authorObj['name'] as String? ?? '';
-            final email = authorObj['email'] as String? ?? '';
-            final login = commitAuthor?['login'] as String? ?? '';
-            if (!authorMatches(author, [name, email, login])) return null;
-            return buildCommit(
-              sha: c['sha'] as String? ?? '',
-              message: commit['message'] as String? ?? '',
-              project: fullName,
-              author: name.isEmpty ? login : name,
-              date: authDate,
-              providerType: providerType,
-            );
-          })
+      Commit? toCommit(Map<String, dynamic> c, {String? authorFilter}) {
+        final commit = c['commit'] as Map<String, dynamic>? ?? {};
+        final authorObj = commit['author'] as Map<String, dynamic>? ?? {};
+        final commitAuthor = c['author'] as Map<String, dynamic>?;
+        final authDate = DateTime.tryParse(authorObj['date'] as String? ?? '');
+        if (authDate == null || !inNaturalDay(authDate, date)) return null;
+        final name = authorObj['name'] as String? ?? '';
+        final email = authorObj['email'] as String? ?? '';
+        final login = commitAuthor?['login'] as String? ?? '';
+        if (authorFilter != null &&
+            !authorMatches(authorFilter, [name, email, login])) {
+          return null;
+        }
+        return buildCommit(
+          sha: c['sha'] as String? ?? '',
+          message: commit['message'] as String? ?? '',
+          project: fullName,
+          author: name.isEmpty ? login : name,
+          date: authDate,
+          providerType: providerType,
+        );
+      }
+
+      final maps = list.whereType<Map<String, dynamic>>().toList();
+      final all = maps
+          .map((c) => toCommit(c))
           .whereType<Commit>()
           .where((c) => c.sha.isNotEmpty)
           .toList();
+      final filtered = maps
+          .map((c) => toCommit(c, authorFilter: author))
+          .whereType<Commit>()
+          .where((c) => c.sha.isNotEmpty)
+          .toList();
+      // 作者过滤无命中 → 放行全部：配置署名（如中文名）与 git 用户名
+      // 不一致时不应让"当日有提交"变成"当日无提交"（issue #9）
+      if (filtered.isEmpty && all.isNotEmpty) return all;
+      return filtered;
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status == 401 || status == 403 || status == 404) {

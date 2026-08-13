@@ -79,26 +79,40 @@ class GitLabProvider implements CodeProvider {
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       final list = resp.data as List? ?? [];
-      return list
-          .whereType<Map<String, dynamic>>()
-          .map((c) {
-            final authDate = DateTime.tryParse(c['authored_date'] as String? ?? '');
-            if (authDate == null || !inNaturalDay(authDate, date)) return null;
-            final authorName = c['author_name'] as String? ?? '';
-            final authorEmail = c['author_email'] as String? ?? '';
-            if (!authorMatches(author, [authorName, authorEmail])) return null;
-            return buildCommit(
-              sha: c['id'] as String? ?? '',
-              message: c['message'] as String? ?? c['title'] as String? ?? '',
-              project: path,
-              author: authorName,
-              date: authDate,
-              providerType: providerType,
-            );
-          })
+      Commit? toCommit(Map<String, dynamic> c, {String? authorFilter}) {
+        final authDate = DateTime.tryParse(c['authored_date'] as String? ?? '');
+        if (authDate == null || !inNaturalDay(authDate, date)) return null;
+        final authorName = c['author_name'] as String? ?? '';
+        final authorEmail = c['author_email'] as String? ?? '';
+        if (authorFilter != null &&
+            !authorMatches(authorFilter, [authorName, authorEmail])) {
+          return null;
+        }
+        return buildCommit(
+          sha: c['id'] as String? ?? '',
+          message: c['message'] as String? ?? c['title'] as String? ?? '',
+          project: path,
+          author: authorName,
+          date: authDate,
+          providerType: providerType,
+        );
+      }
+
+      final maps = list.whereType<Map<String, dynamic>>().toList();
+      final all = maps
+          .map((c) => toCommit(c))
           .whereType<Commit>()
           .where((c) => c.sha.isNotEmpty)
           .toList();
+      final filtered = maps
+          .map((c) => toCommit(c, authorFilter: author))
+          .whereType<Commit>()
+          .where((c) => c.sha.isNotEmpty)
+          .toList();
+      // 作者过滤无命中 → 放行全部：配置署名（如中文名）与 git 用户名
+      // 不一致时不应让"当日有提交"变成"当日无提交"（issue #9）
+      if (filtered.isEmpty && all.isNotEmpty) return all;
+      return filtered;
     } on DioException catch (e) {
       // 单项目失败（如无权限）不阻断整体
       final detail = e.response?.statusCode;

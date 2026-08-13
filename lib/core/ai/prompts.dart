@@ -7,6 +7,7 @@ library;
 
 import '../models/material.dart';
 import '../models/settings.dart';
+import '../providers/code_provider.dart';
 import '../util/date_util.dart';
 
 /// 日报系统提示
@@ -44,9 +45,12 @@ String dailySystemPrompt(AppSettings s) {
 
 /// 日报素材序列化为用户提示
 String dailyUserPrompt(DailyMaterial m, AppSettings s) {
+  // 作者名可配置多个匹配值（逗号分隔），署名取第一个非空值（issue #9）
+  final authorValues = splitAuthorValues(s.authorName);
+  final displayName = authorValues.isEmpty ? '（未设置）' : authorValues.first;
   final buf = StringBuffer()
     ..writeln('日期：${dateKey(m.date)}（${s.timezone} 自然日）')
-    ..writeln('作者：${s.authorName.isEmpty ? "（未设置）" : s.authorName}')
+    ..writeln('作者：$displayName')
     ..writeln();
 
   // 一、代码提交

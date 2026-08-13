@@ -76,9 +76,28 @@ bool inNaturalDay(DateTime commitDate, DateTime date) {
   return !commitDate.isBefore(start) && commitDate.isBefore(end);
 }
 
-/// 作者匹配：配置名（姓名/邮箱/登录名）与 commit 作者任一字段包含匹配
-bool authorMatches(String author, List<String?> fields) =>
-    author.isEmpty || fields.whereType<String>().any((f) => f.contains(author));
+/// 配置的作者名拆分为多个匹配值：中英文逗号、分号分隔，忽略空段。
+/// 第一个非空值用于日报署名，全部值用于 commit 过滤。
+List<String> splitAuthorValues(String author) => author
+    .split(RegExp(r'[,，;；]'))
+    .map((e) => e.trim())
+    .where((e) => e.isNotEmpty)
+    .toList();
+
+/// 作者匹配（issue #9）：配置值与 commit 作者字段（姓名/邮箱/登录名）做
+/// 双向子串匹配、不区分大小写；配置多个值时任一命中即匹配。
+/// 配置为空 → 不过滤。
+bool authorMatches(String author, List<String?> fields) {
+  final values = splitAuthorValues(author);
+  if (values.isEmpty) return true;
+  return fields.whereType<String>().any((f) {
+    final lf = f.toLowerCase();
+    return values.any((v) {
+      final lv = v.toLowerCase();
+      return lf.contains(lv) || lv.contains(lf);
+    });
+  });
+}
 
 /// 通用 Dio 实例
 Dio defaultDio() => Dio(BaseOptions(

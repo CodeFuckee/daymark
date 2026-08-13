@@ -114,7 +114,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           _section('日志', [
             _dirField('日志根目录', _draft.logRoot, (v) => _draft.logRoot = v),
-            _textField('作者名（commit 过滤与署名）', _draft.authorName, (v) => _draft.authorName = v),
+            _textField('作者名（署名 + commit 过滤，多个用逗号分隔）',
+                _draft.authorName, (v) => _draft.authorName = v),
             _textField('时区（自然日）', _draft.timezone, (v) => _draft.timezone = v),
           ]),
           _section('代码', [
