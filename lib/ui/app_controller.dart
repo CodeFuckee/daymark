@@ -164,14 +164,43 @@ class AppController extends Notifier<AppState> {
     return AppState();
   }
 
+  /// 测试辅助：以真实启动流程初始化（等同 build() 内的 _init 调用）
+  @visibleForTesting
+  void initForTest() => _init();
+
   Future<void> _init() async {
     await settingsService.load();
-    await notificationService.init();
+    // 运行时环节独立容错（issue #12）：通知 / 热键 / 监控 / 自启任一环失败
+    // （无显示环境、通知插件缺失等）都不能挡住 settingsLoaded 置位，否则
+    // 设置页永远停留在初始默认值；load 完成后必须把磁盘读回的设置同步进
+    // state.settings——UI 全部经 state.settings 读取设置，漏同步即"重启后
+    // 保存的设置丢失"。
+    try {
+      await notificationService.init();
+    } catch (e) {
+      debugPrint('[daymark] notification init error: $e');
+    }
     _rebuildServices();
-    await _applyHotkey();
-    await _startWatching();
-    await _syncAutoLaunch();
-    state = state.copyWith(settingsLoaded: true, tags: []);
+    try {
+      await reloadHotkey();
+    } catch (e) {
+      debugPrint('[daymark] hotkey init error: $e');
+    }
+    try {
+      await reloadWatcher();
+    } catch (e) {
+      debugPrint('[daymark] watcher init error: $e');
+    }
+    try {
+      await _syncAutoLaunch();
+    } catch (e) {
+      debugPrint('[daymark] auto launch sync error: $e');
+    }
+    state = state.copyWith(
+      settings: settingsService.settings,
+      settingsLoaded: true,
+      tags: [],
+    );
     // 启动时自动检查更新（构建期注入了更新源且用户开启自动检查）
     if (updateConfig.enabled && state.settings.update.autoCheck) {
       checkForUpdates();
@@ -279,7 +308,9 @@ class AppController extends Notifier<AppState> {
 
   /// 启动时同步：配置要求自启但系统未启用时补一次
   Future<void> _syncAutoLaunch() async {
-    final want = state.settings.hotkey.autoLaunch;
+    // 读服务层设置（issue #12：启动时 state.settings 尚未同步，读 state
+    // 会拿到默认值，配置了自启也永远不补启用）
+    final want = settingsService.settings.hotkey.autoLaunch;
     if (!want) return;
     try {
       if (!await LaunchAtStartup.instance.isEnabled()) {
