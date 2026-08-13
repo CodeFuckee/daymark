@@ -139,13 +139,20 @@ if [ -z "$APPIMAGETOOL" ]; then
   mkdir -p .cache
   if [ ! -s "$TOOL_APPIMAGE" ]; then
     echo "==> 下载 appimagetool（gh-proxy 国内代理）"
+    # --http1.1：代理 HTTP/2 流中断（curl 92）多发，HTTP/1.1 更稳；
+    # --retry-all-errors：默认 --retry 不重试 HTTP/2 中断这类传输错误
+    #（issue #14 流水线 #776 两连败根因）；成功判定看 curl 退出码而非
+    # 文件非空——中断留下的部分文件会当作成功执行后段错误
+    ok=0
     for proxy in "https://ghproxy.net" "https://gh-proxy.com"; do
-      if curl -k -fL --retry 3 --connect-timeout 15 -o "$TOOL_APPIMAGE" \
-        "$proxy/https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"; then
+      if curl -k -fL --http1.1 --retry 3 --retry-all-errors --connect-timeout 15 -o "$TOOL_APPIMAGE" \
+        "$proxy/https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
+        && [ -s "$TOOL_APPIMAGE" ]; then
+        ok=1
         break
       fi
     done
-    [ -s "$TOOL_APPIMAGE" ] || { echo "错误: appimagetool 下载失败（需要可用的 GitHub 代理）" >&2; exit 1; }
+    [ "$ok" = 1 ] || { echo "错误: appimagetool 下载失败（需要可用的 GitHub 代理）" >&2; exit 1; }
   fi
   # curl 下载默认 644，AppImage 需可执行
   chmod +x "$TOOL_APPIMAGE"
@@ -160,13 +167,16 @@ mkdir -p .cache
 RUNTIME=".cache/runtime-x86_64"
 if [ ! -s "$RUNTIME" ]; then
   echo "==> 下载 type2 runtime（gh-proxy 国内代理）"
+  ok=0
   for proxy in "https://ghproxy.net" "https://gh-proxy.com"; do
-    if curl -k -fL --retry 3 --connect-timeout 15 -o "$RUNTIME" \
-      "$proxy/https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64"; then
+    if curl -k -fL --http1.1 --retry 3 --retry-all-errors --connect-timeout 15 -o "$RUNTIME" \
+      "$proxy/https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64" \
+      && [ -s "$RUNTIME" ]; then
+      ok=1
       break
     fi
   done
-  [ -s "$RUNTIME" ] || { echo "错误: type2 runtime 下载失败" >&2; exit 1; }
+  [ "$ok" = 1 ] || { echo "错误: type2 runtime 下载失败" >&2; exit 1; }
 fi
 
 # --- 7. 打包（--appimage-extract-and-run 免 FUSE 运行工具 + 显式 runtime）---

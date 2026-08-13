@@ -19,6 +19,12 @@
 - 新增回归测试：删除子目录/删除监控目录本身只收到目录 remove 事件时残留
   记录必须清除 2 个复现用例（修复前均失败）+ `isPathUnder` 分隔符兼容、
   分隔符边界（不误伤 `proj_a` 同前缀兄弟、子路径不吞父目录）单测
+- linux-build 打包加固（流水线 #776 两连败根因）：`build_appimage.sh` 下载
+  appimagetool/type2 runtime 时，代理的 HTTP/2 流中断（curl 92）不在
+  `--retry` 默认重试范围内，且中断留下的部分文件被 `[ -s ]` 误判为成功、
+  执行损坏 AppImage 段错误。修复：curl 加 `--http1.1`（规避代理 HTTP/2
+  流中断）+ `--retry-all-errors`（传输错误也重试），成功判定改为 curl
+  退出码且文件非空
 - 配置监控目录后，无法获取今日修改或新增的文件（issue #13，mac 端报告）：
   根因是文件监控只订阅事件流（FSEvents/inotify/ReadDirectoryChangesW 均
   只报告监控建立**之后**的变更、无历史回放），配置目录前今日已修改/新增
