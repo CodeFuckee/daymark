@@ -168,4 +168,64 @@ void main() {
     expect(cached, isNotNull, reason: '失效目录不应阻断有效目录的扫描');
     await service.stopWatching();
   });
+
+  test('删除子目录只收到目录 remove 事件时，目录下文件记录从当日缓存清除（issue #14 复现）',
+      () async {
+    // 预置：子目录中的今日文件（初始扫描入库）
+    final sub = Directory('$watched/sub')..createSync();
+    final file = File('${sub.path}/a.txt')..writeAsStringSync('今日内容');
+
+    final service = newService();
+    await service.startWatching();
+    await pollCache<bool>(
+      (c) => c != null && c.fileChanges.any((f) => f.path == file.path) ? true : null,
+    );
+
+    // 删除整个子目录。macOS Finder / Windows 删除目录时只上报目录本身的
+    // remove 事件，不逐文件上报子文件（issue #14 根因）。
+    sub.deleteSync(recursive: true);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    rustApi.events.add(FileEvent(path: sub.path, kind: 'remove'));
+
+    final gone = await pollCache<bool>(
+      (c) => c != null && !c.fileChanges.any((f) => f.path == file.path) ? true : null,
+    );
+    expect(gone, isTrue,
+        reason: '目录 remove 事件应把该目录下所有文件记录从当日缓存清除（issue #14）');
+    await service.stopWatching();
+  });
+
+  test('删除监控目录本身只收到根目录 remove 事件，残留记录清除（issue #14）', () async {
+    // 预置：今日文件入库后，整个监控目录被删除
+    final file = File('$watched/a.txt')..writeAsStringSync('今日内容');
+    final service = newService();
+    await service.startWatching();
+    await pollCache<bool>(
+      (c) => c != null && c.fileChanges.any((f) => f.path == file.path) ? true : null,
+    );
+
+    Directory(watched).deleteSync(recursive: true);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    rustApi.events.add(FileEvent(path: watched, kind: 'remove'));
+
+    final gone = await pollCache<bool>(
+      (c) => c != null && !c.fileChanges.any((f) => f.path == file.path) ? true : null,
+    );
+    expect(gone, isTrue,
+        reason: '监控目录本身的 remove 事件应清除其下全部残留记录（issue #14）');
+    await service.stopWatching();
+  });
+
+  test('isPathUnder 目录前缀匹配兼容 Windows 反斜杠分隔符（issue #14）', () {
+    expect(CollectService.isPathUnder('/a/proj/a.txt', '/a/proj'), isTrue);
+    expect(CollectService.isPathUnder('/a/proj', '/a/proj'), isTrue);
+    expect(CollectService.isPathUnder(r'C:\a\proj\a.txt', r'C:\a\proj'), isTrue,
+        reason: 'Windows 事件路径用反斜杠分隔，前缀匹配需兼容两种分隔符');
+    expect(CollectService.isPathUnder('/a/proj/a.txt', '/a/proj/a.txt'), isTrue,
+        reason: '文件自身的 remove 事件按精确匹配删除');
+    expect(CollectService.isPathUnder('/a/proj_a.txt', '/a/proj'), isFalse,
+        reason: '前缀须以路径分隔符为界，不能误伤同前缀的兄弟文件');
+    expect(CollectService.isPathUnder('/a/proj', '/a/proj/sub'), isFalse,
+        reason: '子路径不能吞掉父目录');
+  });
 }

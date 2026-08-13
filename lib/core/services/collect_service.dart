@@ -246,6 +246,15 @@ class CollectService {
         await _removeFromCache(path);
         continue;
       }
+      if (stat.type == FileSystemEntityType.directory) {
+        // 目录事件不写入缓存（避免目录条目污染文件变更列表）；
+        // remove 语义下清除该目录前缀的文件记录——删除整个目录时平台
+        // 只上报目录本身的 remove 事件（issue #14）
+        if (kind == 'remove') {
+          await _removeFromCache(path);
+        }
+        continue;
+      }
       await _mergeIntoCache(FileChange(
         path: path,
         mtime: stat.modified,
@@ -282,8 +291,22 @@ class CollectService {
     await saveMaterialCache(settings.logRoot, merged);
   }
 
+  /// 判断 [child] 是否位于 [parent] 目录下（或相等）。
+  /// 兼容 Windows `\` 与 POSIX `/` 两种分隔符（issue #14）：
+  /// 删除目录时监控事件只上报目录路径，缓存里的子文件记录需按前缀清理。
+  @visibleForTesting
+  static bool isPathUnder(String child, String parent) {
+    final c = child.replaceAll('\\', '/');
+    final p = parent.replaceAll('\\', '/');
+    if (c == p) return true;
+    final prefix = p.endsWith('/') ? p : '$p/';
+    return c.startsWith(prefix);
+  }
+
   /// 把 [path] 的记录从当日素材缓存删除（文件已删除，无法按 mtime 定位，
-  /// remove 事件发生在"现在"，记录按当日清理）
+  /// remove 事件发生在"现在"，记录按当日清理）。
+  /// [path] 若是目录（删除整个目录时事件只上报目录本身），其下所有文件的
+  /// 记录一并清除（issue #14：删除监控目录后仍显示被删目录的文件变更）。
   Future<void> _removeFromCache(String path) =>
       _enqueueCacheWrite(() async {
         final date = dayStart(DateTime.now());
@@ -291,7 +314,7 @@ class CollectService {
         if (cached == null) return;
         final list = [...cached.fileChanges];
         final before = list.length;
-        list.removeWhere((c) => c.path == path);
+        list.removeWhere((c) => isPathUnder(c.path, path));
         if (list.length == before) return;
         await saveMaterialCache(
           settings.logRoot,
