@@ -6,6 +6,14 @@
 
 ### 修复
 
+- macOS 构建产物仍闪退（issue #4 第二轮，v0.1.1）：v0.1.1 起 app 与全部嵌入
+  framework/dylib 均为 ad-hoc 签名且 Team ID 一致，但 `sign_macos.sh` 对 ad-hoc
+  签名也加了 `--options runtime`（Hardened Runtime）→ 开启 Library Validation，
+  dyld 要求嵌入库与主程序 Team ID 严格一致，而 ad-hoc 无 Team ID（macOS 15+
+  判定空与 null 不匹配），加载 `@rpath/daymark_core.framework` 仍报
+  "different Team IDs" 闪退 → 现在仅真实证书签名启用 Hardened Runtime，ad-hoc
+  签名跳过（OpenClaw/electron-builder 等项目的 ad-hoc 构建同样做法）；Team ID
+  一致性校验保留
 - macOS 构建产物启动闪退（issue #4）：`scripts/sign_macos.sh` 此前只签名
   `Contents/Frameworks/*.dylib` 与 `.app`，跳过了 `.framework`（daymark_core.framework
   保留 Xcode 构建期签名，与 .app 的 ad-hoc 签名 Team ID 不一致，dyld 加载

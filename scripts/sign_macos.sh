@@ -25,6 +25,16 @@ flutter build macos --release
 APP="build/macos/Build/Products/Release/daymark.app"
 IDENTITY="${1:--}"
 
+# Hardened Runtime 仅对真实证书签名启用：ad-hoc（"-"）签名加 --options runtime
+# 会开启 Library Validation，dyld 要求所有嵌入库与主程序 Team ID 严格一致，
+# 而 ad-hoc 无 Team ID（空 vs null 不匹配），macOS 15+ 直接拒绝加载
+# @rpath/daymark_core.framework → 启动闪退（issue #4 第二轮，v0.1.1 签名全一致
+# 仍崩即此因）。OpenClaw/electron-builder 等项目的 ad-hoc 构建同样跳过 runtime。
+SIGN_OPTS=()
+if [ "$IDENTITY" != "-" ]; then
+  SIGN_OPTS=(--options runtime)
+fi
+
 if [ ! -d "$APP" ]; then
   echo "错误: $APP 不存在" >&2
   exit 1
@@ -33,7 +43,7 @@ fi
 echo "==> 签名 Frameworks 内的动态库（含 Rust core dylib）"
 for f in "$APP"/Contents/Frameworks/*.dylib; do
   [ -f "$f" ] || continue
-  codesign --force --sign "$IDENTITY" --options runtime "$f"
+  codesign --force --sign "$IDENTITY" "${SIGN_OPTS[@]}" "$f"
 done
 
 # 关键：签名 .framework（daymark_core.framework 等）。此前只签 .dylib 与 .app，
@@ -43,11 +53,11 @@ done
 echo "==> 签名 Frameworks 内的 .framework（含 Rust core framework）"
 for f in "$APP"/Contents/Frameworks/*.framework; do
   [ -d "$f" ] || continue
-  codesign --force --deep --sign "$IDENTITY" --options runtime "$f"
+  codesign --force --deep --sign "$IDENTITY" "${SIGN_OPTS[@]}" "$f"
 done
 
 echo "==> 签名 .app（identity: $IDENTITY）"
-codesign --force --sign "$IDENTITY" --options runtime "$APP"
+codesign --force --sign "$IDENTITY" "${SIGN_OPTS[@]}" "$APP"
 
 echo "==> 验证签名"
 codesign --verify --deep --strict "$APP"
