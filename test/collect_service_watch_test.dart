@@ -216,6 +216,41 @@ void main() {
     await service.stopWatching();
   });
 
+  test('监控目录外的物理路径事件被过滤，目录内事件照常入库（issue #15 复现）', () async {
+    // macOS FileProvider 挂载点（Synology Drive 云盘）的 FSEvents 事件会以
+    // provider 容器内的物理路径上报：用户配置监控
+    // /Users/mac/Library/CloudStorage/SynologyDrive-home，事件路径却是
+    // /Users/mac/Library/Containers/com.synology.CloudStationUI.FileProvider/
+    //   Data/tmp/xxx.sig（同步客户端内部临时/签名文件）。
+    // 这些路径不在监控目录内，不应进入素材缓存。
+    final inDir = File('$watched/正常文件.txt')..writeAsStringSync('今日内容');
+    final fake = File('${tmp.path}/Containers/'
+        'com.synology.CloudStationUI.FileProvider/Data/tmp/x.sig')
+      ..createSync(recursive: true);
+
+    final service = newService();
+    await service.startWatching();
+
+    // 同时注入目录内与目录外事件（FSEvents 对 FileProvider 挂载点两种路径混报）
+    rustApi.events.add(FileEvent(path: inDir.path, kind: 'create'));
+    rustApi.events.add(FileEvent(path: fake.path, kind: 'create'));
+
+    // 目录内事件入库
+    final cached = await pollCache<bool>(
+      (c) => c != null && c.fileChanges.any((f) => f.path == inDir.path) ? true : null,
+    );
+    expect(cached, isTrue, reason: '监控目录内的事件应照常入库');
+    // 目录外事件被过滤：留出多个 debounce 周期确认始终不入库
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    final after = await loadMaterialCache(logRoot, dayStart(DateTime.now()));
+    expect(
+      after == null || after.fileChanges.every((f) => f.path != fake.path),
+      isTrue,
+      reason: '监控目录外的物理路径事件（FileProvider 容器）不应进入素材缓存（issue #15）',
+    );
+    await service.stopWatching();
+  });
+
   test('isPathUnder 目录前缀匹配兼容 Windows 反斜杠分隔符（issue #14）', () {
     expect(CollectService.isPathUnder('/a/proj/a.txt', '/a/proj'), isTrue);
     expect(CollectService.isPathUnder('/a/proj', '/a/proj'), isTrue);

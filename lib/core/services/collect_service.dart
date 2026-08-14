@@ -183,6 +183,12 @@ class CollectService {
     _sub = stream.listen((event) {
       // 排除 daymark 自身缓存目录（避免缓存写入引发循环事件）
       if (isOwnCachePath(event.path)) return;
+      // 只收集监控目录内的事件。macOS FileProvider 挂载点（如 Synology
+      // Drive 云盘：~/Library/CloudStorage/...）的 FSEvents 事件会以
+      // provider 容器内的物理路径上报（~/Library/Containers/.../Data/tmp/
+      // *.sig 等同步客户端内部文件），这些路径不在用户配置的监控目录内，
+      // 若不过滤会混入"本地文件变更"素材（issue #15）。
+      if (!dirs.any((d) => isPathUnder(event.path, d))) return;
       _pending[event.path] = event.kind;
       _debounce ??= Timer(debounceDuration, _flushPending);
     }, onError: (Object e) {

@@ -6,6 +6,18 @@
 
 ### 修复
 
+- 本地文件变更混入监控目录外的文件（issue #15，mac 端）：用户配置监控
+  Synology Drive 云盘挂载点（`~/Library/CloudStorage/SynologyDrive-home`），
+  素材里却出现 `~/Library/Containers/com.synology.CloudStationUI.FileProvider/
+  Data/tmp/*.sig` 等文件。根因是 macOS FileProvider 挂载点的 FSEvents 事件
+  会以 provider 容器内的**物理路径**上报（同步客户端内部临时/签名文件），
+  而事件回调只按排除规则过滤、不校验路径是否在监控目录内，物理路径文件
+  stat 成功即入库。修复：事件入口增加监控目录归属过滤——事件路径必须位于
+  某个配置的监控目录内（复用 `isPathUnder` 前缀匹配，兼容 Windows `\`），
+  否则丢弃；初始扫描走 VFS 遍历（路径天然以监控目录为前缀）不受影响，
+  挂载点内真实文件的可见路径事件照常收集
+- 新增回归测试：同时注入目录内与目录外（FileProvider 容器）事件，断言
+  目录内照常入库、目录外不入库（修复前失败）
 - 删除监控目录后，本地文件变更仍显示被删目录的文件（issue #14）：根因是
   删除**整个目录**时平台监控只上报目录本身的 remove 事件（macOS Finder /
   FSEvents、Windows 不逐文件上报子文件），而 `_removeFromCache` 只做路径
