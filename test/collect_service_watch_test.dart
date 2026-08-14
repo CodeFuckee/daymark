@@ -313,6 +313,73 @@ void main() {
     expect(t!.fileChanges, isEmpty, reason: '当日缓存中被移除目录的记录应清除');
   });
 
+  test('collectForDate 不显示 .daymark 自身缓存残留记录——读侧兜底（issue #17 复现）',
+      () async {
+    // 用户场景：监控目录包含 logRoot 时，历史版本写入的 .daymark 记录
+    // 残留在素材缓存里，「刷新素材」照常显示（issue #17）
+    final normal = File('$watched/normal.txt')..writeAsStringSync('内容');
+    await saveMaterialCache(
+        logRoot,
+        DailyMaterial(date: dayStart(DateTime.now()), fileChanges: [
+          FileChange(
+              path: normal.path,
+              mtime: DateTime.now(),
+              size: 1,
+              kind: 'modify'),
+          FileChange(
+              path: '$watched/.daymark/素材缓存/2026-08-13.json',
+              mtime: DateTime.now(),
+              size: 1,
+              kind: 'modify'),
+        ]));
+
+    final material = await newService().collectForDate(DateTime.now());
+    expect(material.fileChanges.map((f) => f.path), [normal.path],
+        reason: '.daymark 自身缓存目录的记录不应出现在本地文件变更（issue #17）');
+  });
+
+  test('命中排除规则的事件不入库——Dart 侧兜底 Rust 过滤（issue #17）', () async {
+    // Rust 侧按 excludePatterns 过滤事件，Dart 侧原样信赖；测试注入模拟
+    // 绕过 Rust 的路径，命中排除规则（.git 子目录）的事件也不应入库
+    final inDir = File('$watched/正常.txt')..writeAsStringSync('内容');
+    final gitFile = File('$watched/.git/config')..createSync(recursive: true);
+
+    final service = newService();
+    await service.startWatching();
+
+    rustApi.events.add(FileEvent(path: gitFile.path, kind: 'create'));
+    rustApi.events.add(FileEvent(path: inDir.path, kind: 'create'));
+
+    final cached = await pollCache<bool>(
+      (c) => c != null && c.fileChanges.any((f) => f.path == inDir.path) ? true : null,
+    );
+    expect(cached, isTrue, reason: '未命中排除规则的目录内事件照常入库');
+    // 留出多个 debounce 周期确认排除事件始终不入库
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    final after = await loadMaterialCache(logRoot, dayStart(DateTime.now()));
+    expect(
+      after == null || after.fileChanges.every((f) => f.path != gitFile.path),
+      isTrue,
+      reason: '命中排除规则的事件不应进入素材缓存（issue #17）',
+    );
+    await service.stopWatching();
+  });
+
+  test('.daymark 自身缓存路径匹配相对路径与目录本身（issue #17 扩宽）', () {
+    final service = CollectService(AppSettings());
+    // 原实现只匹配 `/.daymark/`、`\.daymark\` 两侧分隔符形式（issue #13），
+    // 相对路径与目录本身路径会漏（issue #17 扩宽为 .daymark 子串匹配）
+    expect(service.isOwnCachePath('.daymark/素材缓存/x.json'), isTrue,
+        reason: '相对路径形式也要匹配');
+    expect(service.isOwnCachePath('/a/.daymark'), isTrue,
+        reason: '目录本身路径（无尾部斜杠）也要匹配');
+    expect(service.isOwnCachePath(r'C:\a\.daymark'), isTrue,
+        reason: 'Windows 目录本身路径也要匹配');
+    expect(service.isOwnCachePath('/a/.daymark/素材缓存/x.json'), isTrue);
+    expect(service.isOwnCachePath(r'C:\a\.daymark\素材缓存\x.json'), isTrue);
+    expect(service.isOwnCachePath('/a/b.txt'), isFalse);
+  });
+
   test('isPathUnder 目录前缀匹配兼容 Windows 反斜杠分隔符（issue #14）', () {
     expect(CollectService.isPathUnder('/a/proj/a.txt', '/a/proj'), isTrue);
     expect(CollectService.isPathUnder('/a/proj', '/a/proj'), isTrue);

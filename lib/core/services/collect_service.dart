@@ -62,6 +62,10 @@ class CollectService {
     } else {
       fileChanges = fileChanges
           .where((c) => watchDirs.any((d) => isPathUnder(c.path, d)))
+          // 读侧排除过滤（issue #17）：.daymark 自身缓存与排除规则命中的
+          // 记录一律不展示——历史版本写入的残留记录在事件/扫描入口都已
+          // 拦截，读侧兜底一切残留来源（与 issue #14 读侧归属过滤同理）
+          .where((c) => !isOwnCachePath(c.path) && !_isExcludedPath(c.path))
           .toList();
     }
 
@@ -193,8 +197,11 @@ class CollectService {
       excludes: settings.excludePatterns,
     );
     _sub = stream.listen((event) {
-      // 排除 daymark 自身缓存目录（避免缓存写入引发循环事件）
-      if (isOwnCachePath(event.path)) return;
+      // 排除 daymark 自身缓存目录（避免缓存写入引发循环事件）；
+      // 排除规则命中同样过滤——Rust 侧已按 excludePatterns 过滤，Dart
+      // 侧再兜底一层（测试注入绕过 Rust、或 Rust 过滤失效时仍不漏，
+      // issue #17）
+      if (isOwnCachePath(event.path) || _isExcludedPath(event.path)) return;
       // 只收集监控目录内的事件。macOS FileProvider 挂载点（如 Synology
       // Drive 云盘：~/Library/CloudStorage/...）的 FSEvents 事件会以
       // provider 容器内的物理路径上报（~/Library/Containers/.../Data/tmp/
@@ -373,10 +380,13 @@ class CollectService {
   }
 
   /// daymark 自身缓存路径（避免缓存写入引发循环事件）。
-  /// Windows 事件路径分隔符为 `\`，两种分隔符都要匹配（issue #13 方案 B）。
+  ///
+  /// `.daymark` 子串匹配（与 Rust 侧排除规则一致的宽松语义，issue #17
+  /// 扩宽）：原实现只匹配 `/.daymark/`、`\.daymark\` 两侧分隔符形式，
+  /// 相对路径（`.daymark/x.json`）与目录本身（`/a/.daymark` 无尾部斜杠）
+  /// 会漏。子串匹配同时覆盖 Windows `\` 分隔符，无需分支。
   @visibleForTesting
-  bool isOwnCachePath(String path) =>
-      path.contains('/.daymark/') || path.contains(r'\.daymark\');
+  bool isOwnCachePath(String path) => path.contains('.daymark');
 
   /// 排除规则：与 Rust 侧 is_excluded 一致（子串匹配）
   bool _isExcludedPath(String path) => settings.excludePatterns

@@ -20,6 +20,13 @@ class AppSettings {
   List<String> watchDirs;
   List<String> excludePatterns;
 
+  /// 默认排除规则（子串匹配，与 Rust 侧 is_excluded 一致）。
+  /// `.daymark` 为应用自身缓存/配置目录（issue #17），默认排除避免
+  /// 混入「本地文件变更」素材。
+  static const List<String> defaultExcludePatterns = [
+    '.git', 'node_modules', '@eaDir', 'Thumbs.db', '.DS_Store', '.daymark',
+  ];
+
   // ── 音频 ──
   String audioDir;
   TranscriptSettings transcript;
@@ -42,7 +49,7 @@ class AppSettings {
     this.timezone = '+08:00',
     this.codeInstances = const [],
     this.watchDirs = const [],
-    this.excludePatterns = const ['.git', 'node_modules', '@eaDir', 'Thumbs.db', '.DS_Store'],
+    this.excludePatterns = defaultExcludePatterns,
     this.audioDir = '',
     TranscriptSettings? transcript,
     AiSettings? ai,
@@ -83,8 +90,10 @@ class AppSettings {
             .map((e) => CodeInstance.fromJson(e as Map<String, dynamic>))
             .toList(),
         watchDirs: List<String>.from(json['watchDirs'] as List? ?? const []),
+        // 键缺失（老版本配置）回退默认排除规则；键存在但为空列表是用户
+        // 主动清空，保留用户意图（issue #17）
         excludePatterns:
-            List<String>.from(json['excludePatterns'] as List? ?? const []),
+            List<String>.from(json['excludePatterns'] as List? ?? defaultExcludePatterns),
         audioDir: json['audioDir'] as String? ?? '',
         transcript: TranscriptSettings.fromJson(
             json['transcript'] as Map<String, dynamic>? ?? {}),

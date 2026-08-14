@@ -40,4 +40,17 @@ void main() {
     roundtrip.watchDirs.add('/only');
     expect(roundtrip.watchDirs, ['/only']);
   });
+
+  test('默认排除规则包含 .daymark（issue #17 复现）', () {
+    expect(AppSettings().excludePatterns, contains('.daymark'),
+        reason: '.daymark 是应用自身缓存目录，应默认排除避免混入本地文件变更');
+  });
+
+  test('excludePatterns 键缺失时回退默认排除规则（issue #17 复现）', () {
+    final parsed = AppSettings.fromJson(const {});
+    expect(parsed.excludePatterns, contains('.daymark'),
+        reason: '老版本 settings.json 无该字段，升级后应获得默认排除规则');
+    expect(parsed.excludePatterns, contains('.git'),
+        reason: '回退的是完整默认列表，而不是只补 .daymark');
+  });
 }
