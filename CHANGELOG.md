@@ -6,6 +6,17 @@
 
 ### 修复
 
+- 删除监控目录后，本地文件变更仍显示被删目录的文件——第二轮（issue #14）：
+  第一轮只修复了「目录 remove 事件到达」时的缓存清理，但用户在**设置里
+  删除监控目录配置**时不会产生任何文件系统 remove 事件，旧记录永久残留
+  在素材缓存里，「刷新素材」照常显示。修复（双保险）：① 读侧归属过滤——
+  `collectForDate` 读取缓存后按当前监控目录过滤文件变更记录，目录外的
+  记录一律不展示（兜底一切残留来源，监控目录清空时文件变更列表为空）；
+  ② 写侧清理——保存设置时对比新旧监控目录，被移除目录前缀的记录从**全部
+  日期**缓存文件中清除（新增 `CollectService.pruneCacheForDirs`，串入缓存
+  写链，后台执行失败只记日志，不阻塞保存）
+- 新增回归测试：设置移除目录后刷新素材不显示旧记录（修复前失败）、多目录
+  场景不误伤仍在监控的记录、全日期缓存清理、saveSettings 端到端清理
 - 本地文件变更混入监控目录外的文件（issue #15，mac 端）：用户配置监控
   Synology Drive 云盘挂载点（`~/Library/CloudStorage/SynologyDrive-home`），
   素材里却出现 `~/Library/Containers/com.synology.CloudStationUI.FileProvider/

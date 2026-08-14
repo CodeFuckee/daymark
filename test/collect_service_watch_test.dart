@@ -251,6 +251,68 @@ void main() {
     await service.stopWatching();
   });
 
+  test('collectForDate 过滤已移除监控目录的记录——设置里删除目录后刷新素材不再显示（issue #14 第二轮复现）',
+      () async {
+    // 用户场景：添加监控目录 → 素材入库 → 在设置里删除监控目录（不产生任何
+    // 文件系统 remove 事件）→ 点「刷新素材」→ 旧记录不应再显示。
+    final file = File('$watched/a.txt')..writeAsStringSync('今日内容');
+    final service = newService();
+    await service.startWatching();
+    await pollCache<bool>(
+      (c) => c != null && c.fileChanges.any((f) => f.path == file.path) ? true : null,
+    );
+    await service.stopWatching();
+
+    // 设置移除监控目录后（watchDirs 置空），刷新素材 = collectForDate
+    final after = CollectService(AppSettings(logRoot: logRoot));
+    final material = await after.collectForDate(DateTime.now());
+    expect(material.fileChanges, isEmpty,
+        reason: '删除监控目录后刷新素材不应再显示该目录的文件变更（issue #14 第二轮）');
+  });
+
+  test('collectForDate 过滤只清掉被移除目录的记录，保留仍在监控目录的记录', () async {
+    // 预置：目录 A（已移除）与目录 B（仍在监控）的记录都在当日缓存
+    final a = FileChange(
+        path: '${tmp.path}/A/a.txt',
+        mtime: DateTime.now(),
+        size: 1,
+        kind: 'modify');
+    final b = FileChange(
+        path: '$watched/b.txt', mtime: DateTime.now(), size: 1, kind: 'modify');
+    await saveMaterialCache(logRoot,
+        DailyMaterial(date: dayStart(DateTime.now()), fileChanges: [a, b]));
+
+    final material = await newService().collectForDate(DateTime.now());
+    expect(material.fileChanges.map((f) => f.path), ['$watched/b.txt'],
+        reason: '读侧过滤不应误伤仍在监控目录内的记录');
+  });
+
+  test('pruneCacheForDirs 把被移除目录的记录从全部日期缓存清除（issue #14 第二轮）',
+      () async {
+    // 预置：昨日缓存含 A/B 两条记录，今日缓存只含 A（目录 A 已被移除）
+    final yesterday = dayStart(DateTime.now()).subtract(const Duration(days: 1));
+    final a = FileChange(
+        path: '${tmp.path}/A/a.txt',
+        mtime: DateTime.now(),
+        size: 1,
+        kind: 'modify');
+    final b = FileChange(
+        path: '$watched/b.txt', mtime: DateTime.now(), size: 1, kind: 'modify');
+    await saveMaterialCache(logRoot,
+        DailyMaterial(date: yesterday, fileChanges: [a, b]));
+    await saveMaterialCache(logRoot,
+        DailyMaterial(date: dayStart(DateTime.now()), fileChanges: [a]));
+
+    final service = newService();
+    await service.pruneCacheForDirs(['${tmp.path}/A']);
+
+    final y = await loadMaterialCache(logRoot, yesterday);
+    expect(y!.fileChanges.map((f) => f.path), ['$watched/b.txt'],
+        reason: '历史日期缓存中被移除目录的记录也应清除，其余记录保留');
+    final t = await loadMaterialCache(logRoot, dayStart(DateTime.now()));
+    expect(t!.fileChanges, isEmpty, reason: '当日缓存中被移除目录的记录应清除');
+  });
+
   test('isPathUnder 目录前缀匹配兼容 Windows 反斜杠分隔符（issue #14）', () {
     expect(CollectService.isPathUnder('/a/proj/a.txt', '/a/proj'), isTrue);
     expect(CollectService.isPathUnder('/a/proj', '/a/proj'), isTrue);

@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -51,7 +52,18 @@ class CollectService {
 
     onProgress?.call('读取文件变更缓存');
     final cached = await loadMaterialCache(settings.logRoot, d);
-    final fileChanges = cached?.fileChanges ?? const <FileChange>[];
+    // 素材按监控目录归属：只保留仍属于当前监控目录的记录。删除监控目录
+    // 配置不产生文件系统 remove 事件，事件清理路径覆盖不到；读侧过滤兜底
+    // 一切残留来源（issue #14 第二轮：删除监控目录后刷新素材仍显示旧记录）。
+    final watchDirs = settings.watchDirs.where((d) => d.trim().isNotEmpty).toList();
+    var fileChanges = cached?.fileChanges ?? const <FileChange>[];
+    if (watchDirs.isEmpty) {
+      fileChanges = const <FileChange>[];
+    } else {
+      fileChanges = fileChanges
+          .where((c) => watchDirs.any((d) => isPathUnder(c.path, d)))
+          .toList();
+    }
 
     // 对新增/修改的文档做内容提取（失败降级为仅记录文件名）
     onProgress?.call('提取文档要点');
@@ -327,6 +339,38 @@ class CollectService {
           cached.copyWith(fileChanges: list),
         );
       });
+
+  /// 设置移除监控目录后，把被移除目录前缀的记录从全部日期素材缓存清除
+  /// （issue #14 第二轮：配置移除没有文件系统 remove 事件，且记录可能分布
+  /// 在历史日期的缓存文件中）。串入缓存写链，避免与事件 flush 交错丢记录。
+  Future<void> pruneCacheForDirs(List<String> dirs) =>
+      _enqueueCacheWrite(() => _pruneCacheForDirsNow(dirs));
+
+  Future<void> _pruneCacheForDirsNow(List<String> dirs) async {
+    final active = dirs.where((d) => d.trim().isNotEmpty).toList();
+    if (active.isEmpty) return;
+    final dir = Directory('${settings.logRoot}/.daymark/素材缓存');
+    if (!await dir.exists()) return;
+    await for (final entity in dir.list()) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      final DailyMaterial? material;
+      try {
+        final decoded =
+            jsonDecode(await entity.readAsString()) as Map<String, dynamic>;
+        material = DailyMaterial.fromJson(decoded);
+      } catch (_) {
+        continue; // 缓存损坏跳过（读取侧同样降级）
+      }
+      final list = material.fileChanges
+          .where((c) => !active.any((d) => isPathUnder(c.path, d)))
+          .toList();
+      if (list.length == material.fileChanges.length) continue;
+      await saveMaterialCache(
+        settings.logRoot,
+        material.copyWith(fileChanges: list),
+      );
+    }
+  }
 
   /// daymark 自身缓存路径（避免缓存写入引发循环事件）。
   /// Windows 事件路径分隔符为 `\`，两种分隔符都要匹配（issue #13 方案 B）。

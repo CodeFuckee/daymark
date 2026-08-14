@@ -221,6 +221,12 @@ class AppController extends Notifier<AppState> {
   // ─────────────────────────── 设置 ───────────────────────────
 
   Future<void> saveSettings(AppSettings next) async {
+    // 被移除的监控目录：配置移除不产生文件系统 remove 事件，后台按目录
+    // 前缀清掉这些目录的素材缓存记录（issue #14 第二轮：删除监控目录后
+    // 刷新素材仍显示被删目录的文件变更）
+    final removedDirs = settingsService.settings.watchDirs
+        .where((d) => !next.watchDirs.contains(d))
+        .toList();
     // 1. 持久化：必须同步等待——写失败要立即反馈给设置页
     settingsService.settings = next;
     await settingsService.save();
@@ -229,7 +235,7 @@ class AppController extends Notifier<AppState> {
     // 2. 运行时重载放后台：热键注册 / 目录监控（大目录递归 watch 可极慢）/
     //    开机自启任一环节阻塞都会让设置页永远停在"保存中…"（issue #6），
     //    因此不再同步等待；各环节独立容错，失败只写日志。
-    _reloadChain = _reloadChain.then((_) => _reloadRuntimeAfterSave());
+    _reloadChain = _reloadChain.then((_) => _reloadRuntimeAfterSave(removedDirs));
   }
 
   /// 测试辅助：等待后台重载链执行完毕
@@ -237,12 +243,19 @@ class AppController extends Notifier<AppState> {
   Future<void> reloadDoneForTest() => _reloadChain;
 
   /// 保存后的运行时重载（后台串行执行，各环节独立容错、互不拖累）
-  Future<void> _reloadRuntimeAfterSave() async {
+  Future<void> _reloadRuntimeAfterSave(List<String> removedDirs) async {
     final autoLaunch = settingsService.settings.hotkey.autoLaunch;
     try {
       await reloadHotkey();
     } catch (e) {
       debugPrint('[daymark] hotkey reload error: $e');
+    }
+    // 先清掉被移除监控目录的缓存残留，再按新目录重建监控（顺序不可倒：
+    // 否则重建后的初始扫描可能把残留记录与新增记录混在一起）
+    try {
+      await collectService.pruneCacheForDirs(removedDirs);
+    } catch (e) {
+      debugPrint('[daymark] prune cache error: $e');
     }
     try {
       await reloadWatcher();

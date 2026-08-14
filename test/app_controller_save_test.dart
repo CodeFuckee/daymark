@@ -9,13 +9,17 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
+import 'package:daymark/core/models/material.dart';
 import 'package:daymark/core/models/settings.dart';
 import 'package:daymark/core/services/collect_service.dart';
 import 'package:daymark/core/services/notification_service.dart';
 import 'package:daymark/core/services/record_service.dart';
 import 'package:daymark/core/services/report_service.dart';
 import 'package:daymark/core/services/settings_service.dart';
+import 'package:daymark/core/util/date_util.dart';
+import 'package:daymark/core/util/markdown_util.dart';
 import 'package:daymark/core/update/update_config.dart';
 import 'package:daymark/core/update/update_service.dart';
 import 'package:daymark/ui/app_controller.dart';
@@ -114,6 +118,44 @@ void main() {
     final fake = controller.settingsService as _FakeSettingsService;
     expect(fake.saved, [next]);
     expect(container.read(appControllerProvider).settings.authorName, '李四');
+  });
+
+  test('移除监控目录时，该目录的文件变更记录从全部日期缓存清除（issue #14 第二轮）',
+      () async {
+    final tmp = await Directory.systemTemp.createTemp('daymark_save_');
+    addTearDown(() => tmp.delete(recursive: true));
+    final logRoot = '${tmp.path}/logs';
+    final dirA = '${tmp.path}/A';
+    final dirB = '${tmp.path}/B';
+
+    final container = makeContainer(
+      () => _GateController(
+        initial: AppSettings(logRoot: logRoot, watchDirs: [dirA, dirB]),
+      ),
+    );
+    final controller =
+        container.read(appControllerProvider.notifier) as _GateController;
+    // 放行三个重载 gate，让后台链顺畅跑完
+    controller.hotkeyGate.complete();
+    controller.watcherGate.complete();
+    controller.autoLaunchGate.complete();
+
+    // 预置：当日缓存里有目录 A（将被移除）与目录 B 的记录
+    final a = FileChange(
+        path: '$dirA/a.txt', mtime: DateTime.now(), size: 1, kind: 'modify');
+    final b = FileChange(
+        path: '$dirB/b.txt', mtime: DateTime.now(), size: 1, kind: 'modify');
+    await saveMaterialCache(logRoot,
+        DailyMaterial(date: dayStart(DateTime.now()), fileChanges: [a, b]));
+
+    // 用户在设置里删除监控目录 A 并保存
+    await controller
+        .saveSettings(AppSettings(logRoot: logRoot, watchDirs: [dirB]));
+    await controller.reloadDoneForTest().timeout(const Duration(seconds: 2));
+
+    final cached = await loadMaterialCache(logRoot, dayStart(DateTime.now()));
+    expect(cached!.fileChanges.map((f) => f.path), ['$dirB/b.txt'],
+        reason: '移除的监控目录 A 的记录应被清除，仍监控的目录 B 记录保留（issue #14 第二轮）');
   });
 
   test('持久化失败必须抛给调用方（设置页显示"保存失败"）', () async {
