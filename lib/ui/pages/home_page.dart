@@ -33,7 +33,17 @@ class _HomePageState extends ConsumerState<HomePage> {
     _refresh();
   }
 
+  /// 切换日期并刷新素材（左右箭头与日历选择器共用入口——issue #16：
+  /// 箭头切换只改日期不刷新，导致本地文件变更列表停留在旧日期）
+  Future<void> _changeDate(DateTime date) {
+    setState(() => _date = dayStart(date));
+    return _refresh();
+  }
+
   Future<void> _refresh() async {
+    // 捕获请求日期：快速连续切换日期时刷新并发，旧日期的响应返回后
+    // 不能覆盖新日期的素材
+    final date = _date;
     final controller = ref.read(appControllerProvider.notifier);
     setState(() {
       _busy = true;
@@ -41,17 +51,17 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
     try {
       final material = await controller.collectForDate(
-        _date,
+        date,
         onProgress: (p) => setState(() => _progress = p),
       );
-      if (mounted) {
+      if (mounted && _date == date) {
         setState(() {
           _material = material;
           _progress = null;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted && _date == date) setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -113,7 +123,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             children: [
               IconButton(
                 onPressed: () =>
-                    setState(() => _date = _date.subtract(const Duration(days: 1))),
+                    _changeDate(_date.subtract(const Duration(days: 1))),
                 icon: const Icon(Icons.chevron_left),
               ),
               TextButton.icon(
@@ -125,7 +135,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 ),
               ),
               IconButton(
-                onPressed: () => setState(() => _date = _date.add(const Duration(days: 1))),
+                onPressed: () => _changeDate(_date.add(const Duration(days: 1))),
                 icon: const Icon(Icons.chevron_right),
               ),
               const Spacer(),
@@ -280,8 +290,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       lastDate: DateTime.now().add(const Duration(days: 1)),
     );
     if (picked != null) {
-      setState(() => _date = dayStart(picked));
-      _refresh();
+      await _changeDate(picked);
     }
   }
 }
