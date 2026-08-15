@@ -150,6 +150,12 @@ asset digest）→ 下载完成系统通知 + 设置页提示 → 用户重启�
   GitHub Actions 的 tar.gz / zip 构建产物不适用自动安装，检测到新版本后
   请手动下载更新
 
-- Linux 全局热键依赖 X11（Wayland 下可能不可用）
-- 转录接口为 OpenAI 兼容协议（Groq / 火山 / 通义均可，配置 base_url）
-- 云同步目录 mtime 刷新可能产生误报，日报措辞用"今日检测到变更"
+## 贡献
+
+欢迎参与开发！提交 Issue、开发流程、提交规范与测试要求见
+[CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE) 开源协议。
+

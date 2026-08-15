@@ -31,6 +31,15 @@
   复制文本格式、幂等）+ 设置页 UI 测试 3 个（板块展示、复制到剪贴板 +
   提示、复制文本覆盖全部条目标签）
 
+### 文档
+
+- 完善 GitLab 项目页面信息（issue #21）：新增 `LICENSE`（MIT 开源协议，
+  GitLab 项目页自动识别并展示许可证）；新增 `CONTRIBUTING.md` 贡献指南
+  （Issue 报告规范、开发环境、主分支直推开发流程、提交规范、测试要求）；
+  README 末尾新增「贡献」「许可证」章节，并修复「已知限制」列表重复条目；
+  经 GitLab API 设置项目 description（about 信息）与 topics
+  （daymark / flutter / rust / worklog / desktop-app）
+
 ### 修复
 
 - 设置新增「并入代码提交的账户」，agent/code01 等辅助账户的提交不再缺失
