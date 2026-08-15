@@ -124,3 +124,32 @@ Dio defaultDio() => Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(seconds: 60),
     ));
+
+/// 把 Dio 网络异常转成用户可读、可排障的原因（issue #20 第三轮）：
+/// 之前实例拉取失败被静默吞掉，UI 只能显示「未拉取到任何提交作者」的
+/// 笼统提示；现在按状态码/异常类型给出可操作的提示。
+String friendlyDioMessage(DioException e) {
+  switch (e.response?.statusCode) {
+    case 401:
+      return '401 未授权（Token 无效或已过期）';
+    case 403:
+      return '403 无权限（请检查 Token 是否具备读取 API 的权限）';
+    case 404:
+      return '404 接口不存在（请确认 base_url 填的是站点根地址，'
+          '如 https://git.example.com）';
+    default:
+      break;
+  }
+  switch (e.type) {
+    case DioExceptionType.connectionTimeout:
+    case DioExceptionType.sendTimeout:
+    case DioExceptionType.receiveTimeout:
+      return '网络超时（请检查网络连接）';
+    case DioExceptionType.connectionError:
+      return '网络连接失败（请检查地址与网络，如 https://git.example.com）';
+    case DioExceptionType.badResponse:
+      return '接口响应异常（HTTP ${e.response?.statusCode ?? '?'}）';
+    default:
+      return '请求失败：${e.message ?? e.type.name}';
+  }
+}

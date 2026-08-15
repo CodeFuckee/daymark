@@ -241,4 +241,155 @@ void main() {
       expect(reloaded.settings.authorName, '王五');
     });
   });
+
+  group('token 密钥库/文件对称降级（issue #20 第三轮）', () {
+    /// 可控密钥库 fake：读/写/删行为按开关注入，内存 map 模拟密钥库内容。
+    /// 修复契约：setToken 两处都写、getToken 密钥库未命中（null 或异常）都
+    /// 降级读文件、deleteToken 两处都删——密钥库「读成功但 key 不存在」时
+    /// 不再静默丢失文件副本中的 token（「未拉取到任何提交作者」的根因之一）。
+    test('密钥库读成功但无该 key（返回 null）→ 降级文件取回 token', () async {
+      fakeSupportDir(supportA.path);
+      final storage = _FakeSecureStorage();
+      final service = SettingsService(
+        storage: storage,
+        homeDirProvider: () async => home.path,
+      );
+      service.settings = AppSettings(logRoot: logs.path);
+      // 密钥库写入失败 → token 落入文件副本
+      storage.writeThrows = true;
+      await service.setToken('inst-1', 'glpat-file-fallback');
+
+      // 密钥库恢复可用但 key 不存在（read 返回 null）：修复前直接返回 null、
+      // 不降级文件 → token 丢失
+      storage.writeThrows = false;
+      expect(
+        await service.getToken('inst-1'),
+        'glpat-file-fallback',
+        reason: '密钥库未命中必须降级读文件副本（与 setToken 的降级对称）',
+      );
+    });
+
+    test('密钥库读抛异常 → 降级文件取回 token（既有行为回归保护）', () async {
+      fakeSupportDir(supportA.path);
+      final storage = _FakeSecureStorage();
+      final service = SettingsService(
+        storage: storage,
+        homeDirProvider: () async => home.path,
+      );
+      service.settings = AppSettings(logRoot: logs.path);
+      storage.writeThrows = true;
+      await service.setToken('inst-1', 'glpat-file-fallback');
+
+      storage.readThrows = true;
+      expect(await service.getToken('inst-1'), 'glpat-file-fallback');
+    });
+
+    test('setToken 密钥库成功时文件副本同步写入（密钥库后来不可用仍能读到新值）', () async {
+      fakeSupportDir(supportA.path);
+      final storage = _FakeSecureStorage();
+      final service = SettingsService(
+        storage: storage,
+        homeDirProvider: () async => home.path,
+      );
+      service.settings = AppSettings(logRoot: logs.path);
+      // 第一次：密钥库失败 → 文件副本为旧值
+      storage.writeThrows = true;
+      await service.setToken('inst-1', 'glpat-old');
+      // 第二次：密钥库成功 → 文件副本必须同步为新值
+      storage.writeThrows = false;
+      await service.setToken('inst-1', 'glpat-new');
+
+      // 密钥库整体不可用 → 降级文件读到的必须是新值而非旧值
+      storage.readThrows = true;
+      expect(await service.getToken('inst-1'), 'glpat-new');
+    });
+
+    test('deleteToken 两处都删：密钥库删成功后降级文件不再读到旧 token', () async {
+      fakeSupportDir(supportA.path);
+      final storage = _FakeSecureStorage();
+      final service = SettingsService(
+        storage: storage,
+        homeDirProvider: () async => home.path,
+      );
+      service.settings = AppSettings(logRoot: logs.path);
+      // 密钥库失败时写入 → 文件副本有值
+      storage.writeThrows = true;
+      await service.setToken('inst-1', 'glpat-to-delete');
+
+      // 密钥库恢复后删除：修复前只删密钥库（key 本就不存在），
+      // getToken 降级文件仍读到旧 token
+      storage.writeThrows = false;
+      await service.deleteToken('inst-1');
+      expect(await service.getToken('inst-1'), isNull);
+    });
+
+    test('密钥库正常时 read/write/delete 走密钥库（有值直接返回不查文件）', () async {
+      fakeSupportDir(supportA.path);
+      final storage = _FakeSecureStorage();
+      final service = SettingsService(
+        storage: storage,
+        homeDirProvider: () async => home.path,
+      );
+      service.settings = AppSettings(logRoot: logs.path);
+      await service.setToken('inst-1', 'glpat-keystore');
+      expect(storage.memory['daymark.token.inst-1'], 'glpat-keystore');
+      expect(await service.getToken('inst-1'), 'glpat-keystore');
+      await service.deleteToken('inst-1');
+      expect(await service.getToken('inst-1'), isNull);
+    });
+  });
+}
+
+/// 可控的密钥库 fake（读/写/删行为可按开关注入，内容存内存 map）
+class _FakeSecureStorage extends FlutterSecureStorage {
+  final Map<String, String> memory = {};
+  bool readThrows = false;
+  bool writeThrows = false;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (readThrows) throw Exception('keystore unavailable');
+    return memory[key];
+  }
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (writeThrows) throw Exception('keystore unavailable');
+    if (value == null) {
+      memory.remove(key);
+    } else {
+      memory[key] = value;
+    }
+  }
+
+  @override
+  Future<void> delete({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (writeThrows) throw Exception('keystore unavailable');
+    memory.remove(key);
+  }
 }

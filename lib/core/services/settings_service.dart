@@ -149,33 +149,45 @@ class SettingsService {
 
   static const _tokenKeyPrefix = 'daymark.token.';
 
-  /// 读取 token：密钥库优先，失败降级本地文件
+  /// 读取 token：密钥库优先；未命中（读失败或 key 不存在返回 null）都降级
+  /// 本地文件副本——与 [setToken] 的降级对称（issue #20 第三轮）。
+  /// 修复前只有读「抛异常」才降级：setToken 时密钥库不可用落盘文件、之后
+  /// 密钥库恢复但 key 不存在（read 返回 null）→ token 静默丢失，表现为
+  /// 「未拉取到任何提交作者（请确认代码实例已配置 Token）」。
   Future<String?> getToken(String instanceId) async {
     try {
-      return await _storage.read(key: '$_tokenKeyPrefix$instanceId');
-    } catch (_) {
-      return _fileTokenFallback().then((map) => map[instanceId]);
-    }
+      final value = await _storage.read(key: '$_tokenKeyPrefix$instanceId');
+      if (value != null && value.isNotEmpty) return value;
+    } catch (_) {}
+    final map = await _fileTokenFallback();
+    return map[instanceId];
   }
 
+  /// 写入 token：密钥库与本地文件副本两处同步（密钥库失败不中断，文件
+  /// 副本兜底；文件副本失败也不抛——密钥库正常时不影响读取）。
   Future<void> setToken(String instanceId, String token) async {
     try {
       await _storage.write(key: '$_tokenKeyPrefix$instanceId', value: token);
-    } catch (_) {
+    } catch (_) {}
+    try {
       final map = await _fileTokenFallback();
       map[instanceId] = token;
       await _writeFileTokens(map);
-    }
+    } catch (_) {}
   }
 
+  /// 删除 token：两处同步删除——getToken 会降级读文件，只删密钥库会
+  /// 重新读到文件里的旧值（issue #20 第三轮）。
   Future<void> deleteToken(String instanceId) async {
     try {
       await _storage.delete(key: '$_tokenKeyPrefix$instanceId');
-    } catch (_) {
+    } catch (_) {}
+    try {
       final map = await _fileTokenFallback();
-      map.remove(instanceId);
-      await _writeFileTokens(map);
-    }
+      if (map.remove(instanceId) != null) {
+        await _writeFileTokens(map);
+      }
+    } catch (_) {}
   }
 
   Future<Map<String, String>> _fileTokenFallback() async {

@@ -30,19 +30,35 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// 无 IO 的 SettingsService：getToken 直接返回 null、setToken 为 no-op
+/// （测试环境无密钥库，真实实现的密钥库/文件降级路径是真实 IO，
+/// 在 FakeAsync 中会挂起——编辑实例对话框的「保存」等 setToken 完成）
+class _FakeSettingsService extends SettingsService {
+  _FakeSettingsService({super.initial});
+
+  @override
+  Future<String?> getToken(String instanceId) async => null;
+
+  @override
+  Future<void> setToken(String instanceId, String token) async {}
+}
+
 /// 可控的 fake controller：saveSettings 行为由测试注入，build 不触 FRB/IO
 class _FakeController extends AppController {
   _FakeController({this.onSave, this.onFetchAuthors, AppSettings? initial})
       : _initial = initial ?? AppSettings(authorName: '测试');
 
   Future<void> Function(AppSettings next)? onSave;
-  /// 拉取提交作者行为（issue #20 第二轮）：未注入时返回空列表
-  Future<List<CommitAuthor>> Function()? onFetchAuthors;
+  /// 拉取提交作者行为（issue #20 第二轮）：未注入时返回空列表。
+  /// 收到设置页传入的实例列表（issue #20 第三轮：应为草稿实例）
+  Future<List<CommitAuthor>> Function(List<CodeInstance>? instances)? onFetchAuthors;
+  /// 记录最近一次收到的实例列表（草稿感知断言用）
+  List<CodeInstance>? lastFetchInstances;
   final AppSettings _initial;
 
   @override
   AppState build() {
-    settingsService = SettingsService(initial: _initial);
+    settingsService = _FakeSettingsService(initial: _initial);
     recordService = RecordService(settingsService.settings);
     collectService = CollectService(settingsService.settings);
     reportService = ReportService(
@@ -68,8 +84,9 @@ class _FakeController extends AppController {
   }
 
   @override
-  Future<List<CommitAuthor>> fetchCommitAuthors() async {
-    if (onFetchAuthors != null) return onFetchAuthors!();
+  Future<List<CommitAuthor>> fetchCommitAuthors({List<CodeInstance>? instances}) async {
+    lastFetchInstances = instances;
+    if (onFetchAuthors != null) return onFetchAuthors!(instances);
     return const [];
   }
 }
@@ -185,7 +202,7 @@ void main() {
       AppSettings? saved;
       final controller = _FakeController(
         onSave: (next) async => saved = next,
-        onFetchAuthors: () async => authors,
+        onFetchAuthors: (_) async => authors,
         initial: AppSettings(
           authorName: '测试',
           extraCommitAuthors: const ['manual_name'],
@@ -218,7 +235,7 @@ void main() {
       AppSettings? saved;
       final controller = _FakeController(
         onSave: (next) async => saved = next,
-        onFetchAuthors: () async => authors,
+        onFetchAuthors: (_) async => authors,
         initial: AppSettings(
           authorName: '测试',
           extraCommitAuthors: const ['chenkaidi', 'agent'],
@@ -244,7 +261,7 @@ void main() {
     testWidgets('拉取失败：对话框显示错误与重试按钮，重试成功展示列表', (tester) async {
       var calls = 0;
       final controller = _FakeController(
-        onFetchAuthors: () async {
+        onFetchAuthors: (_) async {
           calls++;
           if (calls == 1) throw Exception('网络超时');
           return authors;
@@ -271,7 +288,7 @@ void main() {
 
     testWidgets('未拉取到任何作者：对话框显示提示', (tester) async {
       final controller = _FakeController(
-        onFetchAuthors: () async => const <CommitAuthor>[],
+        onFetchAuthors: (_) async => const <CommitAuthor>[],
       );
       await tester.pumpWidget(_wrap(controller));
 
@@ -279,6 +296,46 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('未拉取到任何提交作者'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('新增实例未点「保存设置」：拉取作者也传入草稿实例（issue #20 第三轮）',
+        (tester) async {
+      List<CodeInstance>? received;
+      final controller = _FakeController(
+        onFetchAuthors: (instances) async {
+          received = instances;
+          return const <CommitAuthor>[];
+        },
+        initial: AppSettings(authorName: '测试'), // 持久化列表无实例
+      );
+      await tester.pumpWidget(_wrap(controller));
+
+      // 通过 UI 新增 gitlab 实例（仅写入草稿，不点页面底部「保存设置」）
+      tester.view.physicalSize = const Size(800, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+      await tester.tap(find.text('新增代码实例'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'base_url（如 https://git.example.com）'),
+        'https://home.chenkaidi.top:509',
+      );
+      await tester.pump();
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+
+      // 修复前：拉取读已持久化 settings（无实例）→ 收到的列表为空
+      await tester.tap(find.text('从代码仓库拉取提交作者'));
+      await tester.pumpAndSettle();
+
+      expect(received, isNotNull, reason: '点击拉取按钮必须调用 fetchCommitAuthors');
+      expect(received!.single.baseUrl, 'https://home.chenkaidi.top:509',
+          reason: '传入的应为草稿实例（含未保存的新增实例）');
+      expect(controller.settingsService.settings.codeInstances, isEmpty,
+          reason: '未点「保存设置」，持久化设置不应变化');
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
     });

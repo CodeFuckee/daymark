@@ -80,13 +80,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   /// 「拉取提交作者」对话框（issue #20 第二轮）：拉取所有启用代码实例的
   /// 提交作者，勾选并入 [AppSettings.extraCommitAuthors]。确定 = 勾选集合 ∪
   /// 手动输入中不在拉取列表里的值（列表内以勾选为准，列表外保留）。
+  /// 实例列表传当前草稿 [_draft]（issue #20 第三轮）：新增实例未点「保存
+  /// 设置」也能拉取，不再因读已持久化设置而返回空列表。
   Future<void> _pickCommitAuthors() async {
     final controller = ref.read(appControllerProvider.notifier);
     if (!mounted) return;
     final merged = await showDialog<List<String>>(
       context: context,
       builder: (dialogContext) => _CommitAuthorsDialog(
-        fetch: controller.fetchCommitAuthors,
+        fetch: () =>
+            controller.fetchCommitAuthors(instances: _draft.codeInstances),
         initial: _draft.extraCommitAuthors,
       ),
     );

@@ -6,6 +6,7 @@ library;
 
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
@@ -133,6 +134,11 @@ class AppController extends Notifier<AppState> {
   late Future<void> Function() reloadWatcher;
   @visibleForTesting
   late Future<void> Function(bool enable) reloadAutoLaunch;
+
+  /// 测试注入点：按 providerType 构造 CodeProvider；null 时按类型 new
+  /// 真实 provider（GitLab/GitHub）。
+  @visibleForTesting
+  CodeProvider Function(String providerType)? providerFactory;
 
   StreamSubscription<int>? _hotkeySub;
   bool _updateChecking = false;
@@ -273,34 +279,56 @@ class AppController extends Notifier<AppState> {
   }
 
   /// 拉取全部启用代码实例的提交作者（去重排序，issue #20 第二轮）：
-  /// 设置页「从代码仓库拉取提交作者」对话框的数据源。单实例失败跳过
-  /// （与采集一致的容错语义）；返回空列表时 UI 提示未拉取到作者。
-  Future<List<CommitAuthor>> fetchCommitAuthors() async {
-    final instances = settingsService.settings.codeInstances
-        .where((i) => i.enabled && i.baseUrl.isNotEmpty)
-        .toList();
-    final results = await Future.wait(instances.map((instance) async {
+  /// 设置页「从代码仓库拉取提交作者」对话框的数据源。
+  ///
+  /// [instances] 未传时取已持久化设置的启用实例；设置页传入草稿实例列表
+  /// ——新增实例尚未点「保存设置」也能拉取（issue #20 第三轮：修复前读
+  /// 已持久化 settings，草稿实例被忽略 → 空列表 → 「未拉取到任何提交作者」）。
+  ///
+  /// 实例级失败不再静默吞掉：无任何作者且存在失败时抛
+  /// [CodeProviderException]，消息按实例列出原因（Token 缺失/401/网络等），
+  /// 用户在对话框直接看到可排障的提示。
+  Future<List<CommitAuthor>> fetchCommitAuthors({List<CodeInstance>? instances}) async {
+    final list = instances ??
+        settingsService.settings.codeInstances
+            .where((i) => i.enabled && i.baseUrl.isNotEmpty)
+            .toList();
+    final failures = <String>[];
+    final results = await Future.wait(list.map((instance) async {
+      final label = instance.name.isEmpty ? instance.baseUrl : instance.name;
       try {
         final token = await settingsService.getToken(instance.id);
-        if (token == null || token.isEmpty) return const <CommitAuthor>[];
-        final CodeProvider provider = instance.providerType == 'github'
-            ? GitHubProvider()
-            : GitLabProvider();
+        if (token == null || token.isEmpty) {
+          failures.add('$label：未配置 Token');
+          return const <CommitAuthor>[];
+        }
+        final CodeProvider provider = providerFactory?.call(instance.providerType) ??
+            (instance.providerType == 'github'
+                ? GitHubProvider()
+                : GitLabProvider());
         return await provider.fetchCommitAuthors(
           instance: instance,
           token: token,
         );
       } catch (e) {
+        final reason = e is DioException ? friendlyDioMessage(e) : '$e';
+        failures.add('$label：$reason');
         debugPrint('[daymark] fetch commit authors failed for ${instance.name}: $e');
         return const <CommitAuthor>[];
       }
     }));
     final seen = <String>{};
-    return results
+    final authors = results
         .expand((e) => e)
         .where((a) => seen.add(a.key.toLowerCase()))
         .toList()
       ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+    if (authors.isEmpty && failures.isNotEmpty) {
+      throw CodeProviderException(
+        '未拉取到任何提交作者：\n- ${failures.join('\n- ')}',
+      );
+    }
+    return authors;
   }
 
   /// 快捷添加文件排除项（issue #18）：把 [path] 追加进 excludePatterns 并
