@@ -6,7 +6,7 @@
 /// 2. 点击按钮：对应路径传给 addExcludePattern，列表刷新后该文件消失，
 ///    其余文件保留，SnackBar 提示已添加；
 /// 3. 全部排除后列表显示「当日无文件变更」；
-/// 4. 超过 8 条时只展示前 8 条（与现有截断一致），按钮随行展示；
+/// 4. 超过 8 条时全部展示（issue #19 移除截断），按钮随行展示；
 /// 5. 保存失败时 SnackBar 提示失败，列表不崩溃。
 library;
 
@@ -142,16 +142,22 @@ void main() {
         reason: '空列表不再有按钮');
   });
 
-  testWidgets('超过 8 条时只展示前 8 条，按钮随行展示', (tester) async {
+  testWidgets('超过 8 条时全部展示，按钮随行展示（issue #19 移除截断）', (tester) async {
+    // 放大视口让全部条目落入可视区（默认 600 高只能布局前几条）
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     final files = List.generate(10, (i) => '/watch/f$i.txt');
     final controller = _FakeController(files: files);
     await tester.pumpWidget(_wrap(controller));
     await tester.pump();
     await tester.pump();
 
-    expect(find.byTooltip('添加为排除项'), findsNWidgets(8),
-        reason: '与现有截断一致，只展示前 8 条');
-    expect(find.textContaining('… 共 10 条'), findsOneWidget);
+    expect(find.byTooltip('添加为排除项'), findsNWidgets(10),
+        reason: '全部 10 条记录都渲染，每条右侧都有按钮');
+    expect(find.textContaining('… 共'), findsNothing,
+        reason: '不再有截断提示');
   });
 
   testWidgets('保存失败时 SnackBar 提示失败，列表不崩溃', (tester) async {

@@ -367,7 +367,10 @@ class _MaterialCard extends StatelessWidget {
                 child: Text(emptyText, style: TextStyle(color: Colors.grey.shade500)),
               )
             else
-              ...items.take(8).indexed.map(
+              // 全量渲染（issue #19：原先 take(8) 截断，当天修改文件超过
+              // 8 条时其余文件看不到——用户找不到当日修改过的 .skp 文件。
+              // 列表整体在 ListView 内滚动，全部展示不影响布局）。
+              ...items.indexed.map(
                     (entry) => Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(
@@ -382,14 +385,6 @@ class _MaterialCard extends StatelessWidget {
                       ),
                     ),
                   ),
-            if (items.length > 8)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  '… 共 ${items.length} 条',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                ),
-              ),
           ],
         ),
       ),
