@@ -269,6 +269,24 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  /// 快捷添加文件排除项（issue #18）：把 [path] 追加进 excludePatterns 并
+  /// 持久化。排除规则是子串匹配（与 Rust 侧 is_excluded 一致），已命中现有
+  /// 规则的路径不再重复添加。保存走 [saveSettings]，watcher 会在后台按新
+  /// 规则重建；读侧 `collectForDate` 的排除过滤在下次刷新时立即隐藏该文件。
+  /// 返回提示消息（UI SnackBar 展示）；持久化失败异常冒泡给调用方。
+  Future<String> addExcludePattern(String path) async {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return '路径为空，无法添加排除项';
+    final patterns = settingsService.settings.excludePatterns;
+    if (patterns.any((p) => p.isNotEmpty && trimmed.contains(p))) {
+      return '该文件已在排除规则内';
+    }
+    final next = AppSettings.fromJson(settingsService.settings.toJson());
+    next.excludePatterns = [...patterns, trimmed];
+    await saveSettings(next);
+    return '已添加排除项：$trimmed';
+  }
+
   // ─────────────────────────── 全局热键 ───────────────────────────
 
   Future<void> _applyHotkey() async {

@@ -244,6 +244,8 @@ class _HomePageState extends ConsumerState<HomePage> {
           items: material.fileChanges
               .map((f) => '[${f.kind}] ${f.path}')
               .toList(),
+          // issue #18：每条记录右侧快捷按钮，一键把该文件添加为排除项
+          trailingBuilder: (i) => _excludeButton(material.fileChanges[i]),
           emptyText: '当日无文件变更',
         ),
         _MaterialCard(
@@ -282,6 +284,34 @@ class _HomePageState extends ConsumerState<HomePage> {
     return line.length > 60 ? '${line.substring(0, 60)}…' : line;
   }
 
+  /// 把单个文件快捷添加为排除项（issue #18）：写入设置后刷新素材，
+  /// 读侧排除过滤立即生效，该文件从「本地文件变更」列表消失；
+  /// 结果经 SnackBar 反馈，持久化失败不崩溃（列表保持原样）。
+  Future<void> _excludeFile(FileChange file) async {
+    final controller = ref.read(appControllerProvider.notifier);
+    String message;
+    try {
+      message = await controller.addExcludePattern(file.path);
+    } catch (e) {
+      message = '添加排除项失败：$e';
+    }
+    await _refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// 单条文件变更记录右侧的排除按钮（紧凑尺寸，避免挤压路径文本）
+  Widget _excludeButton(FileChange file) {
+    return IconButton(
+      tooltip: '添加为排除项',
+      icon: const Icon(Icons.block, size: 16),
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      onPressed: () => _excludeFile(file),
+    );
+  }
+
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -300,12 +330,16 @@ class _MaterialCard extends StatelessWidget {
   final IconData icon;
   final List<String> items;
   final String emptyText;
+  /// 每条目右侧的附加操作（issue #18：文件变更条目「添加为排除项」按钮）。
+  /// 参数为条目在 [items] 中的下标，返回 null 则该条目不加附加操作。
+  final Widget? Function(int index)? trailingBuilder;
 
   const _MaterialCard({
     required this.title,
     required this.icon,
     required this.items,
     required this.emptyText,
+    this.trailingBuilder,
   });
 
   @override
@@ -333,10 +367,19 @@ class _MaterialCard extends StatelessWidget {
                 child: Text(emptyText, style: TextStyle(color: Colors.grey.shade500)),
               )
             else
-              ...items.take(8).map(
-                    (item) => Padding(
+              ...items.take(8).indexed.map(
+                    (entry) => Padding(
                       padding: const EdgeInsets.only(top: 4),
-                      child: Text(item, style: const TextStyle(fontSize: 13)),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(entry.$2,
+                                style: const TextStyle(fontSize: 13)),
+                          ),
+                          if (trailingBuilder != null)
+                            trailingBuilder!(entry.$1) ?? const SizedBox.shrink(),
+                        ],
+                      ),
                     ),
                   ),
             if (items.length > 8)

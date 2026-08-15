@@ -211,7 +211,8 @@ CodeProvider
 
 - 事件（Create/Modify/Remove）→ 节流聚合（如 5s 批处理）→ 记录变更：路径、mtime、大小、操作类型
 - 按 mtime 归属自然日，与现有 collect.py 语义一致
-- 排除规则：隐藏文件、`@eaDir`、`node_modules`、.git 等（设置页可配）
+- 排除规则：隐藏文件、`@eaDir`、`node_modules`、.git 等（设置页可配）；
+  日报页「本地文件变更」每条记录右侧按钮可快捷把该文件加入排除规则（issue #18）
 - 变更记录写入 `.daymark/素材缓存/<date>.json`，供日报流水线消费
 - 云同步目录 mtime 刷新误报：聚合时对"内容 hash 未变"的 Modify 事件去重（可选，v1 先只记录）
 
