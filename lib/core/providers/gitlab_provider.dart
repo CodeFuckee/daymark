@@ -136,4 +136,91 @@ class GitLabProvider implements CodeProvider {
     }
     return base.endsWith('/api/v4') ? base : '$base/api/v4';
   }
+
+  @override
+  Future<List<CommitAuthor>> fetchCommitAuthors({
+    required CodeInstance instance,
+    required String token,
+    int maxCommitsPerRepo = 100,
+  }) async {
+    final base = _apiBase(instance.baseUrl);
+    String auth() => 'Bearer $token';
+
+    // 1. 项目列表（分页，与 fetchCommits 同源）
+    final projects = await paginate(
+      _dio,
+      '$base/projects',
+      query: (page) => {
+        'membership': true,
+        'simple': true,
+        'per_page': 100,
+        'page': page,
+      },
+      authHeader: auth,
+    );
+
+    // 2. 多项目并行拉提交作者
+    final results = await Future.wait(projects.map(
+        (p) => _fetchProjectAuthors(p, base, token, instance, maxCommitsPerRepo)));
+    final seen = <String>{};
+    return results
+        .expand((e) => e)
+        .where((a) => seen.add(a.key.toLowerCase()))
+        .toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+  }
+
+  /// 拉取单个项目最近提交的作者（issue #20 第二轮）：
+  /// 逐页回看最多 [maxCommitsPerRepo] 条提交，收集 author_name/author_email。
+  Future<List<CommitAuthor>> _fetchProjectAuthors(
+    Map<String, dynamic> project,
+    String base,
+    String token,
+    CodeInstance instance,
+    int maxCommitsPerRepo,
+  ) async {
+    final path = project['path_with_namespace'] as String? ?? project['path'] as String? ?? '';
+    if (path.isEmpty) return const [];
+    // 可见性过滤（与 fetchCommits 一致）
+    final visibility = project['visibility'] as String?;
+    if (instance.visibilityFilter.isNotEmpty &&
+        visibility != null &&
+        visibility != instance.visibilityFilter) {
+      return const [];
+    }
+
+    try {
+      final commits = <Map<String, dynamic>>[];
+      for (var page = 1; commits.length < maxCommitsPerRepo && page <= 20; page++) {
+        final resp = await _dio.get(
+          '$base/projects/${Uri.encodeComponent(path)}/repository/commits',
+          queryParameters: {
+            'per_page': 100,
+            'page': page,
+            if (instance.defaultBranch.isNotEmpty) 'ref_name': instance.defaultBranch,
+          },
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        final list = resp.data as List? ?? [];
+        if (list.isEmpty) break;
+        commits.addAll(list.whereType<Map<String, dynamic>>());
+        if (list.length < 100) break;
+      }
+      return commits
+          .take(maxCommitsPerRepo)
+          .map((c) => CommitAuthor(
+                name: c['author_name'] as String? ?? '',
+                email: c['author_email'] as String? ?? '',
+              ))
+          .where((a) => a.key.isNotEmpty)
+          .toList();
+    } on DioException catch (e) {
+      // 单项目失败（如无权限）不阻断整体
+      final detail = e.response?.statusCode;
+      if (detail == 401 || detail == 403 || detail == 404) {
+        return const [];
+      }
+      rethrow;
+    }
+  }
 }

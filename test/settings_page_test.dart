@@ -13,6 +13,7 @@ library;
 import 'dart:async';
 
 import 'package:daymark/core/about/about_info.dart';
+import 'package:daymark/core/models/material.dart';
 import 'package:daymark/core/models/settings.dart';
 import 'package:daymark/core/services/collect_service.dart';
 import 'package:daymark/core/services/notification_service.dart';
@@ -31,10 +32,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// 可控的 fake controller：saveSettings 行为由测试注入，build 不触 FRB/IO
 class _FakeController extends AppController {
-  _FakeController({this.onSave, AppSettings? initial})
+  _FakeController({this.onSave, this.onFetchAuthors, AppSettings? initial})
       : _initial = initial ?? AppSettings(authorName: '测试');
 
   Future<void> Function(AppSettings next)? onSave;
+  /// 拉取提交作者行为（issue #20 第二轮）：未注入时返回空列表
+  Future<List<CommitAuthor>> Function()? onFetchAuthors;
   final AppSettings _initial;
 
   @override
@@ -62,6 +65,12 @@ class _FakeController extends AppController {
       return;
     }
     await super.saveSettings(next);
+  }
+
+  @override
+  Future<List<CommitAuthor>> fetchCommitAuthors() async {
+    if (onFetchAuthors != null) return onFetchAuthors!();
+    return const [];
   }
 }
 
@@ -166,6 +175,115 @@ void main() {
     });
   });
 
+  group('拉取提交作者勾选并入（issue #20 第二轮）', () {
+    const authors = [
+      CommitAuthor(name: 'agent', email: 'agent@example.com'),
+      CommitAuthor(name: 'chenkaidi', email: '935637782@qq.com'),
+    ];
+
+    testWidgets('勾选并入保存：与手动输入值合并（列表内以勾选为准）', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(
+        onSave: (next) async => saved = next,
+        onFetchAuthors: () async => authors,
+        initial: AppSettings(
+          authorName: '测试',
+          extraCommitAuthors: const ['manual_name'],
+        ),
+      );
+      await tester.pumpWidget(_wrap(controller));
+
+      await tester.tap(find.text('从代码仓库拉取提交作者'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('agent <agent@example.com>'), findsOneWidget,
+          reason: '对话框应展示拉取到的作者列表');
+
+      // 勾选 agent，不勾选 chenkaidi
+      await tester.tap(find.text('agent <agent@example.com>'));
+      await tester.pump();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.extraCommitAuthors, containsAll(['manual_name', 'agent']),
+          reason: '手动输入且不在拉取列表中的值保留，勾选值并入');
+      expect(saved?.extraCommitAuthors, isNot(contains('chenkaidi')),
+          reason: '未勾选的作者不并入');
+    });
+
+    testWidgets('取消勾选已并入账户：保存后移除（勾选状态为准）', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(
+        onSave: (next) async => saved = next,
+        onFetchAuthors: () async => authors,
+        initial: AppSettings(
+          authorName: '测试',
+          extraCommitAuthors: const ['chenkaidi', 'agent'],
+        ),
+      );
+      await tester.pumpWidget(_wrap(controller));
+
+      await tester.tap(find.text('从代码仓库拉取提交作者'));
+      await tester.pumpAndSettle();
+
+      // 两个作者都已在并入列表中 → 初始勾选；取消 agent
+      await tester.tap(find.text('agent <agent@example.com>'));
+      await tester.pump();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.extraCommitAuthors, ['chenkaidi']);
+    });
+
+    testWidgets('拉取失败：对话框显示错误与重试按钮，重试成功展示列表', (tester) async {
+      var calls = 0;
+      final controller = _FakeController(
+        onFetchAuthors: () async {
+          calls++;
+          if (calls == 1) throw Exception('网络超时');
+          return authors;
+        },
+      );
+      await tester.pumpWidget(_wrap(controller));
+
+      await tester.tap(find.text('从代码仓库拉取提交作者'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('拉取失败'), findsOneWidget);
+      expect(find.text('重试'), findsOneWidget);
+
+      await tester.tap(find.text('重试'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('agent <agent@example.com>'), findsOneWidget,
+          reason: '重试成功应展示作者列表');
+      // 关闭对话框（取消不影响草稿）
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(find.text('agent <agent@example.com>'), findsNothing);
+    });
+
+    testWidgets('未拉取到任何作者：对话框显示提示', (tester) async {
+      final controller = _FakeController(
+        onFetchAuthors: () async => const <CommitAuthor>[],
+      );
+      await tester.pumpWidget(_wrap(controller));
+
+      await tester.tap(find.text('从代码仓库拉取提交作者'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('未拉取到任何提交作者'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+    });
+  });
+
   group('目录监控（issue #11）：添加监控目录改为目录选择器', () {
     late FileSelectorPlatform original;
 
@@ -185,6 +303,12 @@ void main() {
       await tester.pumpWidget(_wrap(controller));
 
       // 修复前：按钮是"添加"文本按钮，找不到"选择目录"tooltip → 测试失败
+      // 日志区块新增拉取作者按钮后（issue #20 第二轮），目录监控区块移出
+      // 默认 800x600 测试视口 → 拉高视口保证可点（与关于板块测试同法）
+      tester.view.physicalSize = const Size(800, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
       await tester.tap(find.byTooltip('选择目录'));
       await tester.pumpAndSettle();
 
@@ -203,6 +327,12 @@ void main() {
       final controller = _FakeController(onSave: (next) async => saved = next);
       await tester.pumpWidget(_wrap(controller));
 
+      // 拉高视口保证「目录监控」区块在可视区内可点（issue #20 第二轮
+      // 新增按钮后区块下移）
+      tester.view.physicalSize = const Size(800, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
       await tester.tap(find.byTooltip('选择目录'));
       await tester.pumpAndSettle();
 

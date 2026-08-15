@@ -28,6 +28,15 @@ abstract class CodeProvider {
     /// 与主作者的提交一并保留
     List<String> extraAuthors = const [],
   });
+
+  /// 拉取实例内所有仓库的提交作者（跨仓库去重，issue #20 第二轮）：
+  /// 供设置页展示真实作者列表，用户勾选「并入代码提交的账户」。
+  /// [maxCommitsPerRepo] 限制每个仓库回看的最近提交条数（防大仓库超时）。
+  Future<List<CommitAuthor>> fetchCommitAuthors({
+    required CodeInstance instance,
+    required String token,
+    int maxCommitsPerRepo = 100,
+  });
 }
 
 /// 共享工具：分页翻页直到结果为空

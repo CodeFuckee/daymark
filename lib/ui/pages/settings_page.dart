@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/about/about_info.dart';
+import '../../core/models/material.dart';
 import '../../core/models/settings.dart';
 import '../app_controller.dart';
 
@@ -76,6 +77,26 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   void _markDirty() => setState(() => _dirty = true);
 
+  /// 「拉取提交作者」对话框（issue #20 第二轮）：拉取所有启用代码实例的
+  /// 提交作者，勾选并入 [AppSettings.extraCommitAuthors]。确定 = 勾选集合 ∪
+  /// 手动输入中不在拉取列表里的值（列表内以勾选为准，列表外保留）。
+  Future<void> _pickCommitAuthors() async {
+    final controller = ref.read(appControllerProvider.notifier);
+    if (!mounted) return;
+    final merged = await showDialog<List<String>>(
+      context: context,
+      builder: (dialogContext) => _CommitAuthorsDialog(
+        fetch: controller.fetchCommitAuthors,
+        initial: _draft.extraCommitAuthors,
+      ),
+    );
+    if (merged == null || !mounted) return;
+    setState(() {
+      _draft.extraCommitAuthors = merged;
+      _dirty = true;
+    });
+  }
+
   Future<String> _pickDirectory(String current) async {
     final dir = await getDirectoryPath(initialDirectory: current.isNotEmpty ? current : null);
     return dir ?? current;
@@ -123,6 +144,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               _draft.extraCommitAuthors =
                   v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
             }),
+            // issue #20 第二轮：手动输入账户名可能与 Git 提交作者名不一致
+            // （辅助账户的提交作者名常为主账户名），改为拉取真实作者勾选
+            OutlinedButton.icon(
+              onPressed: () => _pickCommitAuthors(),
+              icon: const Icon(Icons.manage_accounts_outlined),
+              label: const Text('从代码仓库拉取提交作者'),
+            ),
             _textField('时区（自然日）', _draft.timezone, (v) => _draft.timezone = v),
           ]),
           _section('代码', [
@@ -652,6 +680,181 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 提交作者勾选对话框（issue #20 第二轮）：打开即拉取全部启用代码实例的
+/// 提交作者；确定时返回并入账户列表（勾选集合 ∪ 列表外的手动输入值）。
+class _CommitAuthorsDialog extends StatefulWidget {
+  final Future<List<CommitAuthor>> Function() fetch;
+  /// 当前已配置的并入账户（手动输入值），用于初始勾选与列表外保留
+  final List<String> initial;
+
+  const _CommitAuthorsDialog({required this.fetch, required this.initial});
+
+  @override
+  State<_CommitAuthorsDialog> createState() => _CommitAuthorsDialogState();
+}
+
+class _CommitAuthorsDialogState extends State<_CommitAuthorsDialog> {
+  bool _loading = true;
+  String? _error;
+  List<CommitAuthor> _authors = const [];
+  /// 勾选的作者 key 集合
+  final Set<String> _checked = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final authors = await widget.fetch();
+      if (!mounted) return;
+      final initialLower = widget.initial.map((e) => e.toLowerCase()).toSet();
+      setState(() {
+        _authors = authors;
+        _checked
+          ..clear()
+          ..addAll(authors
+              .where((a) => initialLower.contains(a.key.toLowerCase()))
+              .map((a) => a.key));
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '拉取失败：$e';
+      });
+    }
+  }
+
+  void _confirm() {
+    // 手动输入中不在拉取列表里的值保留（列表内以勾选为准）
+    final fetchedLower = _authors.map((a) => a.key.toLowerCase()).toSet();
+    final manual = widget.initial
+        .where((e) => !fetchedLower.contains(e.toLowerCase()))
+        .toList();
+    final picked = _authors
+        .where((a) => _checked.contains(a.key))
+        .map((a) => a.key)
+        .toList();
+    Navigator.pop(context, [...manual, ...picked]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget content;
+    if (_loading) {
+      content = const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 12),
+          Text('正在拉取提交作者…'),
+        ],
+      );
+    } else if (_error != null) {
+      content = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
+              const SizedBox(width: 8),
+              Flexible(child: Text(_error!)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+            label: const Text('重试'),
+          ),
+        ],
+      );
+    } else if (_authors.isEmpty) {
+      content = const Text('未拉取到任何提交作者（请确认代码实例已配置 Token 且仓库有提交）');
+    } else {
+      final allChecked = _checked.length == _authors.length;
+      content = SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('共 ${_authors.length} 位作者'),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => setState(() {
+                    if (allChecked) {
+                      _checked.clear();
+                    } else {
+                      _checked
+                        ..clear()
+                        ..addAll(_authors.map((a) => a.key));
+                    }
+                  }),
+                  child: Text(allChecked ? '全不选' : '全选'),
+                ),
+              ],
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final author in _authors)
+                    CheckboxListTile(
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(author.display),
+                      value: _checked.contains(author.key),
+                      onChanged: (v) => setState(() {
+                        if (v == true) {
+                          _checked.add(author.key);
+                        } else {
+                          _checked.remove(author.key);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return AlertDialog(
+      title: const Text('并入代码提交的账户'),
+      content: content,
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        if (!_loading && _error == null && _authors.isNotEmpty)
+          FilledButton(
+            onPressed: _confirm,
+            child: const Text('确定'),
+          ),
+      ],
     );
   }
 }

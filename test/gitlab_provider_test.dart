@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:daymark/core/models/material.dart';
 import 'package:daymark/core/models/settings.dart';
 import 'package:daymark/core/providers/gitlab_provider.dart';
 import 'package:dio/dio.dart';
@@ -8,10 +9,25 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// 假 adapter：按请求 path 返回模拟 GitLab 响应（不发起真实网络）。
 class _FakeAdapter implements HttpClientAdapter {
-  /// 提交响应内容（按需由测试构造）
-  List<Map<String, dynamic>> commits;
+  /// 提交响应内容（单仓库模式，与旧测试兼容）
+  List<Map<String, dynamic>>? commits;
+  /// 按项目路径区分的提交（多项目/作者拉取测试用）
+  Map<String, List<Map<String, dynamic>>> commitsByProject;
+  /// 按项目路径注入的 HTTP 状态码（模拟无权限/不存在）
+  Map<String, int> statusByProject;
+  /// 项目列表响应
+  List<Map<String, dynamic>> projects;
+  /// 收到的请求（path, queryParameters），供测试断言分页/分支参数
+  final List<(String, Map<String, dynamic>)> requests = [];
 
-  _FakeAdapter({required this.commits});
+  _FakeAdapter({
+    this.commits,
+    this.commitsByProject = const {},
+    this.statusByProject = const {},
+    List<Map<String, dynamic>>? projects,
+  }) : projects = projects ?? [
+          {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+        ];
 
   @override
   Future<ResponseBody> fetch(
@@ -19,17 +35,37 @@ class _FakeAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
-    Object data;
-    if (options.path.contains('/repository/commits')) {
-      data = commits;
-    } else {
-      // 项目列表
-      data = [
-        {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
-      ];
+    requests.add((options.uri.path, options.queryParameters));
+    if (options.uri.path.contains('/repository/commits')) {
+      // 提交接口：项目路径是 /projects/<encodeComponent(path)> 段
+      // （编码后无 '/',如 ckd%2Fdaymark），解码后按项目出响应
+      final segs = options.uri.path.split('/');
+      final projectPath = Uri.decodeComponent(segs[segs.indexOf('projects') + 1]);
+      final status = statusByProject[projectPath] ?? 200;
+      if (status != 200) {
+        return ResponseBody.fromString(
+          jsonEncode({'message': 'denied'}),
+          status,
+          headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType],
+          },
+        );
+      }
+      final all = commitsByProject[projectPath] ?? commits ?? const [];
+      // 分页截取（与 GitLab API 一致）
+      final page = (options.queryParameters['page'] as int?) ?? 1;
+      final perPage = (options.queryParameters['per_page'] as int?) ?? 100;
+      final slice = all.skip((page - 1) * perPage).take(perPage).toList();
+      return ResponseBody.fromString(
+        jsonEncode(slice),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
     }
     return ResponseBody.fromString(
-      jsonEncode(data),
+      jsonEncode(projects),
       200,
       headers: {
         Headers.contentTypeHeader: [Headers.jsonContentType],
@@ -76,6 +112,26 @@ Future<List<dynamic>> _fetch({
     extraAuthors: extraAuthors,
   );
   return result;
+}
+
+/// 拉取提交作者（issue #20 第二轮）测试入口
+Future<List<CommitAuthor>> _fetchAuthors(
+  _FakeAdapter adapter, {
+  int maxCommitsPerRepo = 100,
+  String defaultBranch = '',
+}) async {
+  final dio = Dio()..httpClientAdapter = adapter;
+  final provider = GitLabProvider(dio: dio);
+  return provider.fetchCommitAuthors(
+    instance: CodeInstance(
+      id: 'gl1',
+      providerType: 'gitlab',
+      baseUrl: 'https://home.chenkaidi.top:509',
+      defaultBranch: defaultBranch,
+    ),
+    token: 'test-token',
+    maxCommitsPerRepo: maxCommitsPerRepo,
+  );
 }
 
 void main() {
@@ -163,6 +219,99 @@ void main() {
       final result = await _fetch(
           commits: byEmail, author: 'chenkaidi', extraAuthors: ['agent']);
       expect(result.map((c) => c.sha), ['d1']);
+    });
+  });
+
+  group('GitLabProvider 拉取提交作者（issue #20 第二轮）', () {
+    test('复现 #20 第二轮：真实提交作者名与账户名不一致——拉取返回真实作者名', () async {
+      // daymark 仓库中 agent 会话的提交 author_name 实为 'chenkaidi'（本地
+      // git 身份），用户手动输入 'agent' 必然匹配不上——第一轮「还是没有
+      // 显示提交」的根因。拉取真实作者后勾选，保存值与提交 author_name
+      // 完全一致，必然命中采集过滤。
+      final adapter = _FakeAdapter(commits: [
+        _commit(id: 'a1', authorName: 'chenkaidi'),
+        _commit(id: 'a2', authorName: 'chenkaidi'),
+      ]);
+      final authors = await _fetchAuthors(adapter);
+      expect(authors.map((a) => a.key), ['chenkaidi'],
+          reason: '真实作者名是 chenkaidi 而非 agent——勾选它必然命中提交过滤');
+      expect(authors.single.display, 'chenkaidi <935637782@qq.com>');
+    });
+
+    test('多项目作者合并去重（作者名不区分大小写）并按名排序', () async {
+      final adapter = _FakeAdapter(
+        projects: [
+          {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+          {'id': 2, 'path_with_namespace': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        commitsByProject: {
+          'ckd/daymark': [
+            _commit(id: 'a1', authorName: 'chenkaidi'),
+            _commit(id: 'a2', authorName: 'agent', authorEmail: 'agent@example.com'),
+          ],
+          'ckd/shipyard': [
+            _commit(id: 'b1', authorName: 'CHENKAIDI'),
+            _commit(id: 'b2', authorName: 'code01', authorEmail: 'code01@example.com'),
+          ],
+        },
+      );
+      final authors = await _fetchAuthors(adapter);
+      expect(authors.map((a) => a.key), ['agent', 'chenkaidi', 'code01'],
+          reason: '跨项目去重（大小写不敏感）并按作者名排序');
+    });
+
+    test('author_name 为空时保存值回退邮箱', () async {
+      final adapter = _FakeAdapter(commits: [
+        _commit(id: 'a1', authorName: '', authorEmail: 'bot@example.com'),
+      ]);
+      final authors = await _fetchAuthors(adapter);
+      expect(authors.single.key, 'bot@example.com');
+      expect(authors.single.display, 'bot@example.com');
+    });
+
+    test('单项目 401 跳过，其他项目作者正常返回', () async {
+      final adapter = _FakeAdapter(
+        projects: [
+          {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+          {'id': 2, 'path_with_namespace': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        statusByProject: {'ckd/daymark': 401},
+        commitsByProject: {
+          'ckd/shipyard': [
+            _commit(id: 'b1', authorName: 'lisi', authorEmail: 'lisi@qq.com'),
+          ],
+        },
+      );
+      final authors = await _fetchAuthors(adapter);
+      expect(authors.map((a) => a.key), ['lisi']);
+    });
+
+    test('每仓库最多回看 maxCommitsPerRepo 条提交（分页截止）', () async {
+      final many = [
+        for (var i = 0; i < 150; i++) _commit(id: 'c$i', authorName: 'author$i'),
+      ];
+      final adapter = _FakeAdapter(commits: many);
+      final authors = await _fetchAuthors(adapter, maxCommitsPerRepo: 50);
+      expect(authors, hasLength(50));
+      expect(authors.map((a) => a.key).toSet(),
+          {for (var i = 0; i < 50; i++) 'author$i'},
+          reason: '只回看前 50 条提交的作者');
+      final commitRequests = adapter.requests
+          .where((r) => r.$1.contains('/repository/commits'))
+          .toList();
+      expect(commitRequests.map((r) => r.$2['page']), [1],
+          reason: '已达回看上限，不应继续翻页');
+    });
+
+    test('defaultBranch 非空时提交请求携带 ref_name', () async {
+      final adapter = _FakeAdapter(commits: [
+        _commit(id: 'a1', authorName: 'chenkaidi'),
+      ]);
+      await _fetchAuthors(adapter, defaultBranch: 'main');
+      final commitRequests = adapter.requests
+          .where((r) => r.$1.contains('/repository/commits'))
+          .toList();
+      expect(commitRequests.single.$2['ref_name'], 'main');
     });
   });
 }

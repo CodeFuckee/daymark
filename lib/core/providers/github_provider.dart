@@ -128,4 +128,96 @@ class GitHubProvider implements CodeProvider {
       rethrow;
     }
   }
+
+  @override
+  Future<List<CommitAuthor>> fetchCommitAuthors({
+    required CodeInstance instance,
+    required String token,
+    int maxCommitsPerRepo = 100,
+  }) async {
+    final base = instance.baseUrl.trim().isEmpty
+        ? 'https://api.github.com'
+        : instance.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    String auth() => 'Bearer $token';
+
+    // 1. 我的仓库列表（与 fetchCommits 同源）
+    final repos = await paginate(
+      _dio,
+      '$base/user/repos',
+      query: (page) => {
+        'per_page': 100,
+        'page': page,
+        'affiliation': 'owner,collaborator',
+        'sort': 'updated',
+      },
+      authHeader: auth,
+    );
+
+    // 2. 并行拉每仓库提交作者
+    final results = await Future.wait(repos.map(
+        (r) => _fetchRepoAuthors(r, base, token, instance, maxCommitsPerRepo)));
+    final seen = <String>{};
+    return results
+        .expand((e) => e)
+        .where((a) => seen.add(a.key.toLowerCase()))
+        .toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+  }
+
+  /// 拉取单个仓库最近提交的作者（issue #20 第二轮）：
+  /// 逐页回看最多 [maxCommitsPerRepo] 条提交，收集 commit.author 的
+  /// name/email（name 为空回退 GitHub 登录名）。
+  Future<List<CommitAuthor>> _fetchRepoAuthors(
+    Map<String, dynamic> repo,
+    String base,
+    String token,
+    CodeInstance instance,
+    int maxCommitsPerRepo,
+  ) async {
+    final fullName = repo['full_name'] as String? ?? '';
+    if (fullName.isEmpty) return const [];
+    // 可见性过滤（与 fetchCommits 一致）
+    if (instance.visibilityFilter.isNotEmpty) {
+      final visibility = repo['visibility'] as String? ?? '';
+      if (visibility.isNotEmpty && visibility != instance.visibilityFilter) {
+        return const [];
+      }
+    }
+
+    try {
+      final commits = <Map<String, dynamic>>[];
+      for (var page = 1; commits.length < maxCommitsPerRepo && page <= 20; page++) {
+        final resp = await _dio.get(
+          '$base/repos/$fullName/commits',
+          queryParameters: {'per_page': 100, 'page': page},
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        final list = resp.data as List? ?? [];
+        if (list.isEmpty) break;
+        commits.addAll(list.whereType<Map<String, dynamic>>());
+        if (list.length < 100) break;
+      }
+      return commits
+          .take(maxCommitsPerRepo)
+          .map((c) {
+        final commit = c['commit'] as Map<String, dynamic>? ?? {};
+        final authorObj = commit['author'] as Map<String, dynamic>? ?? {};
+        final login = (c['author'] as Map<String, dynamic>?)?['login'] as String? ?? '';
+        final name = authorObj['name'] as String? ?? '';
+        return CommitAuthor(
+          // name 为空（含空串）回退 GitHub 登录名
+          name: name.trim().isEmpty ? login : name,
+          email: authorObj['email'] as String? ?? '',
+        );
+      })
+          .where((a) => a.key.isNotEmpty)
+          .toList();
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 401 || status == 403 || status == 404) {
+        return const [];
+      }
+      rethrow;
+    }
+  }
 }

@@ -42,6 +42,29 @@ class Commit {
       );
 }
 
+/// 提交作者（issue #20 第二轮）：从代码仓库拉取的真实提交人，供设置页
+/// 勾选「并入代码提交的账户」。手动输入账户名可能与 Git 提交作者名
+/// 不一致（如辅助账户的提交作者名实为主账户名），勾选真实作者必然命中
+/// 采集过滤。
+class CommitAuthor {
+  final String name;
+  final String email;
+
+  const CommitAuthor({required this.name, required this.email});
+
+  /// 勾选保存值：作者名优先（与提交 author_name 完全一致），
+  /// 名为空时回退邮箱
+  String get key => name.trim().isEmpty ? email.trim() : name.trim();
+
+  /// 对话框展示文本：`name <email>`（无邮箱或邮箱与名相同时仅显示名）
+  String get display {
+    final k = key;
+    final e = email.trim();
+    if (e.isEmpty || e == k) return k;
+    return '$k <$e>';
+  }
+}
+
 /// 文件变更（notify 事件经节流聚合后的记录）
 class FileChange {
   final String path;

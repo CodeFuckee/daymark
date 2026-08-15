@@ -12,6 +12,9 @@ import 'package:launch_at_startup/launch_at_startup.dart';
 
 import '../core/models/material.dart';
 import '../core/models/settings.dart';
+import '../core/providers/code_provider.dart';
+import '../core/providers/github_provider.dart';
+import '../core/providers/gitlab_provider.dart';
 import '../core/services/collect_service.dart';
 import '../core/services/notification_service.dart';
 import '../core/services/record_service.dart';
@@ -267,6 +270,37 @@ class AppController extends Notifier<AppState> {
     } catch (e) {
       debugPrint('[daymark] auto launch reload error: $e');
     }
+  }
+
+  /// 拉取全部启用代码实例的提交作者（去重排序，issue #20 第二轮）：
+  /// 设置页「从代码仓库拉取提交作者」对话框的数据源。单实例失败跳过
+  /// （与采集一致的容错语义）；返回空列表时 UI 提示未拉取到作者。
+  Future<List<CommitAuthor>> fetchCommitAuthors() async {
+    final instances = settingsService.settings.codeInstances
+        .where((i) => i.enabled && i.baseUrl.isNotEmpty)
+        .toList();
+    final results = await Future.wait(instances.map((instance) async {
+      try {
+        final token = await settingsService.getToken(instance.id);
+        if (token == null || token.isEmpty) return const <CommitAuthor>[];
+        final CodeProvider provider = instance.providerType == 'github'
+            ? GitHubProvider()
+            : GitLabProvider();
+        return await provider.fetchCommitAuthors(
+          instance: instance,
+          token: token,
+        );
+      } catch (e) {
+        debugPrint('[daymark] fetch commit authors failed for ${instance.name}: $e');
+        return const <CommitAuthor>[];
+      }
+    }));
+    final seen = <String>{};
+    return results
+        .expand((e) => e)
+        .where((a) => seen.add(a.key.toLowerCase()))
+        .toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
   }
 
   /// 快捷添加文件排除项（issue #18）：把 [path] 追加进 excludePatterns 并
