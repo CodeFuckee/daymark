@@ -34,6 +34,16 @@ BRANCH = os.environ.get("GITHUB_BRANCH", "main")
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 EXCLUDE = {".gitlab-ci.yml"}  # 脱敏：不推送 GitLab CI 流水线文件
 
+# GitHub 仓库 About 栏信息（issue #22）：description / topics / homepage 无法用
+# 仓库文件表达，只能经 REST API 设置（GitLab 侧项目页信息见 issue #21）。
+# topics 遵循 GitHub 规则：仅小写字母/数字/连字符、≤50 字符、≤20 个。
+REPO_DESCRIPTION = (
+    "个人自用工作日志桌面客户端：随手记录、GitLab/GitHub 提交与文件变更自动收集、"
+    "AI 汇总生成日报（Flutter + Rust core）"
+)
+REPO_TOPICS = ["flutter", "rust", "desktop-app", "work-log", "daily-report", "ai", "markdown"]
+REPO_HOMEPAGE = "https://home.chenkaidi.top:509/chenkaidi/daymark"
+
 API = "https://api.github.com"
 H = {"Authorization": f"token {TOKEN}", "Accept": "application/vnd.github+json"}
 
@@ -170,6 +180,26 @@ def build_tree(prefix, files):
     return tree["sha"], flat
 
 
+def sync_repo_metadata():
+    """同步 GitHub 仓库 About 栏信息（description / homepage / topics）。
+    每次同步时幂等重设，保证 GitHub 页面信息与代码仓库保持一致（issue #22）。"""
+    api("PATCH", f"/repos/{REPO}",
+        {"description": REPO_DESCRIPTION, "homepage": REPO_HOMEPAGE})
+    api("PUT", f"/repos/{REPO}/topics", {"names": REPO_TOPICS})
+
+
+def sync_metadata_safely():
+    """安全同步仓库元信息：失败仅告警上报（report_failure 双通道留痕），
+    不抛异常——源码同步是 push-to-github job 的核心职责，About 栏信息
+    设置失败不应把整个 job 判失败（issue #22）。"""
+    try:
+        sync_repo_metadata()
+        print("==> GitHub 仓库信息已同步（description / topics / homepage）")
+    except Exception as e:
+        print(f"!! GitHub 仓库信息同步失败（不影响源码同步）: {e}", file=sys.stderr)
+        report_failure(f"GitHub 仓库元信息同步失败: {e}")
+
+
 def report_failure(msg):
     """失败诊断上报（双通道）：
     1. 宿主 /tmp 日志（shell executor 场景，便于直接读取排查）
@@ -252,6 +282,9 @@ def main():
     else:
         api("POST", f"/repos/{REPO}/git/refs", {"ref": f"refs/heads/{BRANCH}", "sha": sha})
     print(f"==> 已同步 {REPO} ({BRANCH})，{len(files)} 个文件，来源 GitLab")
+
+    # 源码同步成功后刷新仓库 About 栏信息（issue #22），失败不阻塞
+    sync_metadata_safely()
 
 
 if __name__ == "__main__":

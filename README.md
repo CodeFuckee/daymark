@@ -2,6 +2,10 @@
 
 个人自用工作日志桌面客户端（Flutter + Rust core，macOS / Linux / Windows）。
 
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)]()
+[![build](https://github.com/CodeFuckee/daymark/actions/workflows/build.yml/badge.svg)](https://github.com/CodeFuckee/daymark/actions/workflows/build.yml)
+
 基于 [DESIGN.md](DESIGN.md) 设计方案实现。
 
 ## 功能

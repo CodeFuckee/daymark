@@ -33,6 +33,21 @@
 
 ### 文档
 
+- 完善 GitHub 页面信息（issue #22）：
+  - `scripts/sync_github.py` 源码同步后经 GitHub REST API 设置仓库 About 栏
+    信息（description 中文简介、homepage 指向 GitLab 主仓库、topics 主题
+    标签）；失败仅告警上报（report_failure 双通道留痕）不阻塞源码同步，
+    源码同步职责与页面信息解耦。新增单元测试 `scripts/test_sync_github.py`
+    10 个（API 调用参数、topics GitHub 规则校验、幂等、PATCH/PUT/网络失败
+    均不抛出），CI 新增 `python-test` job（stage: test，python:3-alpine）
+    持续验证
+  - 新增 `SECURITY.md` 安全策略：支持版本（仅最新 release）、机密 Issue
+    报告渠道、处理流程（7 天确认、修复后披露）与范围边界
+  - 新增 GitHub Issue 模板 `.github/ISSUE_TEMPLATE/bug_report.yml`（复现
+    步骤、预期/实际行为、日志、版本、平台）与 `feature_request.yml`（需求
+    背景、期望行为、验收标准、边界场景），新增 `.github/PULL_REQUEST_TEMPLATE.md`
+    （变更说明、测试情况、检查清单），与 CONTRIBUTING.md 报告规范一致
+  - README 标题下新增徽章行（license / platform / GitHub Actions 构建状态）
 - 完善 GitLab 项目页面信息（issue #21）：新增 `LICENSE`（MIT 开源协议，
   GitLab 项目页自动识别并展示许可证）；新增 `CONTRIBUTING.md` 贡献指南
   （Issue 报告规范、开发环境、主分支直推开发流程、提交规范、测试要求）；
