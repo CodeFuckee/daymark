@@ -16,7 +16,7 @@
 
 ## 检查清单
 
-- [ ] 已同步更新 [CHANGELOG.md](../CHANGELOG.md)
+- [ ] 已同步更新 [CHANGELOG.md](../CHANGELOG.md) 与 [CHANGELOG_cn.md](../CHANGELOG_cn.md)
 - [ ] 提交信息使用约定式前缀 + 中文描述（`fix:` / `feat:` / `test:` / `docs:` / `chore:`）
 - [ ] 未包含敏感信息（token、密钥、内部服务地址等）
 

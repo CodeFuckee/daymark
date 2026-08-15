@@ -1,68 +1,74 @@
-# 贡献指南
+# Contributing Guide
 
-感谢你对 Daymark 的关注！本文档说明如何参与本项目的开发与维护。
+Thanks for your interest in Daymark! This document explains how to participate in the development and maintenance of this project.
 
-## 如何报告问题
+> 中文文档：[CONTRIBUTING_cn.md](CONTRIBUTING_cn.md)
 
-请通过 [GitLab Issue](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues) 提交问题，建议包含：
+## Reporting Issues
 
-- **Bug**：复现步骤、预期行为、实际行为、异常日志/堆栈、运行环境（操作系统、Flutter/Rust 版本）；
-- **功能建议**：需求背景、期望行为、验收标准、边界场景。
+Please report problems via [GitLab Issues](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues), ideally including:
 
-Issue 标签约定：
+- **Bug**: reproduction steps, expected behavior, actual behavior, error logs/stack traces, runtime environment (OS, Flutter/Rust versions);
+- **Feature request**: requirement background, expected behavior, acceptance criteria, edge cases.
 
-| 标签 | 含义 |
+Issue label conventions:
+
+| Label | Meaning |
 | --- | --- |
-| `bug` | 缺陷修复 |
-| `feature` | 新功能 |
-| `test` | 补充测试 |
-| `docs` | 文档完善 |
-| `optimize` | 性能/代码优化 |
-| `in-progress` | 处理中 |
-| `bot-done` | 开发完成，待人工确认 |
+| `bug` | Bug fix |
+| `feature` | New feature |
+| `test` | Test supplementation |
+| `docs` | Documentation improvement |
+| `optimize` | Performance/code optimization |
+| `in-progress` | In progress |
+| `bot-done` | Development done, awaiting human confirmation |
 
-## 开发环境
+## Development Environment
 
-依赖与常用命令详见 [README.md](README.md#开发)。快速检查清单：
+See [README.md](README.md#development) for dependencies and common commands. Quick checklist:
 
-- Flutter ≥ 3.24（桌面平台）
-- Rust stable（cargo）
-- `flutter_rust_bridge_codegen`（修改 `rust/src/api/` 后需重新生成 FFI 绑定）
+- Flutter ≥ 3.24 (desktop platforms)
+- Rust stable (cargo)
+- `flutter_rust_bridge_codegen` (regenerate FFI bindings after modifying `rust/src/api/`)
 
-## 开发流程
+## Development Workflow
 
-本项目在默认主分支（`main`）上直接开发，**不创建功能分支**：
+This project develops directly on the default main branch (`main`) — **no feature branches**:
 
-1. 开发前先 `git pull --rebase` 同步远端最新代码；
-2. 编写代码前先编写（或补充）测试用例；
-3. 本地全量测试通过后方可推送：
+1. Run `git pull --rebase` to sync the latest remote code before developing;
+2. Write (or supplement) test cases before writing code;
+3. Push only after the full local test suite passes:
    ```bash
    cd rust && cargo test && cd ..
    flutter test
    ```
-4. 推送后关注 GitLab CI 流水线，失败需修复直至成功；
-5. 所有改动同步更新 [CHANGELOG.md](CHANGELOG.md)。
+4. Watch the GitLab CI pipeline after pushing; keep fixing until it succeeds;
+5. Update [CHANGELOG.md](CHANGELOG.md) and [CHANGELOG_cn.md](CHANGELOG_cn.md) with every change (both the English and Chinese versions are maintained in sync).
 
-> 合并冲突时请手工逐条解决，**禁止** `git push --force` 等强制覆盖操作。
+> Resolve merge conflicts by hand, one by one. Force pushes (`git push --force`) are **forbidden**.
 
-## 提交规范
+## Commit Conventions
 
-提交信息使用约定式前缀 + 中文描述：
+Commit messages use a conventional prefix + Chinese description:
 
-- `fix:` 缺陷修复
-- `feat:` 新功能
-- `test:` 补充/修正测试
-- `docs:` 文档变更
-- `chore:` 构建、CI、杂项
+- `fix:` bug fixes
+- `feat:` new features
+- `test:` test supplementation/correction
+- `docs:` documentation changes
+- `chore:` build, CI, misc
 
-示例：`fix: 设置页排除规则保存失败时未提示（issue #18）`
+Example: `fix: 设置页排除规则保存失败时未提示（issue #18）`
 
-## 测试要求
+## Documentation Conventions
 
-- 新功能必须配套单元测试与边界用例（空输入、极值、重复调用、异常参数）；
-- Bug 修复必须先编写可复现失败的测试用例；
-- 推送前本地运行全部测试套件（`cargo test` + `flutter test`），确保无回归。
+All documentation files are maintained in two copies, one English and one Chinese; the Chinese version adds a `cn` suffix to the filename (e.g. `README.md` / `README_cn.md`). When changing one, update both. GitHub issue/PR templates follow the same rule (Chinese templates carry the `cn` suffix). `LICENSE` stays single-copy (standard MIT legal text).
 
-## 许可证
+## Test Requirements
 
-本项目采用 [MIT License](LICENSE)。提交代码即表示同意在该许可证下发布你的贡献。
+- New features must ship with unit tests and edge cases (empty input, extremes, repeated calls, invalid arguments);
+- Bug fixes must first include a test case that reproduces the failure;
+- Run the full local test suites (`cargo test` + `flutter test`) before pushing, ensuring no regressions.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE). Submitting code means you agree to release your contribution under that license.

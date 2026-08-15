@@ -1,44 +1,44 @@
-name: 功能建议
-description: 提出新功能或改进建议（需求背景、期望行为、验收标准）
+name: Feature Request
+description: Propose a new feature or improvement (requirement background, expected behavior, acceptance criteria)
 title: "feature: "
 labels: ["feature"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢提出建议！主仓库在 [GitLab](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues)，
-        本仓库为源码镜像；如你在 GitLab 侧有想法也可直接在那里提交。
+        Thanks for the suggestion! The primary repository is on [GitLab](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues);
+        this repository is a source mirror. If you have ideas on the GitLab side, you can also submit them there directly.
   - type: textarea
     id: background
     attributes:
-      label: 需求背景
-      description: 为什么要做这个功能？解决什么问题？
+      label: Requirement Background
+      description: Why is this feature needed? What problem does it solve?
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: 期望行为
-      description: 功能的具体表现（入口、交互、输出）
+      label: Expected Behavior
+      description: The concrete behavior of the feature (entry points, interactions, outputs)
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
-      label: 验收标准
-      description: 怎样算完成？（可勾选清单）
+      label: Acceptance Criteria
+      description: What counts as done? (a checkable list)
       placeholder: |
-        - [ ] 设置页新增开关
-        - [ ] 重启后配置保持
+        - [ ] New toggle on the settings page
+        - [ ] Configuration persists after restart
     validations:
       required: true
   - type: textarea
     id: edge
     attributes:
-      label: 边界场景
-      description: 空输入、异常参数、并发、断网等边界情况下的期望表现
+      label: Edge Cases
+      description: Expected behavior under empty input, invalid arguments, concurrency, offline, etc.
   - type: textarea
     id: context
     attributes:
-      label: 补充信息
-      description: 相关截图、参考实现、替代方案等
+      label: Additional Information
+      description: Related screenshots, reference implementations, alternatives, etc.

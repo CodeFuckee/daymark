@@ -1,68 +1,68 @@
-name: Bug 报告
-description: 提交缺陷报告（复现步骤、预期/实际行为、环境信息）
+name: Bug Report
+description: Submit a bug report (reproduction steps, expected/actual behavior, environment info)
 title: "bug: "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢报告 Bug！主仓库在 [GitLab](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues)，
-        本仓库为源码镜像；如你在 GitLab 侧发现问题也可直接在那里提交。
+        Thanks for reporting a bug! The primary repository is on [GitLab](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues);
+        this repository is a source mirror. If you find issues on the GitLab side, you can also report them there directly.
   - type: textarea
     id: description
     attributes:
-      label: 问题描述
-      description: 发生了什么？一句话概述
-      placeholder: 例如：日报生成时 GitLab 提交未合并进素材
+      label: Problem Description
+      description: What happened? A one-sentence summary
+      placeholder: e.g. GitLab commits are missing from materials when generating the daily report
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
-      label: 复现步骤
-      description: 按步骤列出最小复现路径
+      label: Reproduction Steps
+      description: List the minimal reproduction path step by step
       placeholder: |
-        1. 打开设置页配置 GitLab token
-        2. 点击「立即刷新」采集素材
-        3. 切换到日报页点击「生成日报」
+        1. Open the settings page and configure the GitLab token
+        2. Click "Refresh now" to collect materials
+        3. Switch to the daily report page and click "Generate report"
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: 预期行为
-      description: 你期望发生什么？
+      label: Expected Behavior
+      description: What did you expect to happen?
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: 实际行为
-      description: 实际发生了什么？如有报错截图/日志请附上
+      label: Actual Behavior
+      description: What actually happened? Attach error screenshots/logs if any
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: 日志与堆栈
-      description: 应用日志、异常堆栈、终端输出等（可用设置页「复制诊断信息」一键复制）
+      label: Logs & Stack Traces
+      description: App logs, exception stack traces, terminal output, etc. (use "Copy diagnostics" on the settings page About section)
       render: text
   - type: input
     id: version
     attributes:
-      label: 版本
-      description: 设置页「关于」板块中的版本号与构建时间
-      placeholder: 例如：0.3.1（2026-08-15 构建）
+      label: Version
+      description: Version number and build time from the settings page About section
+      placeholder: e.g. 0.3.1 (built 2026-08-15)
     validations:
       required: true
   - type: dropdown
     id: os
     attributes:
-      label: 操作系统
+      label: Operating System
       options:
         - macOS
-        - Linux（X11）
-        - Linux（Wayland）
+        - Linux (X11)
+        - Linux (Wayland)
         - Windows
     validations:
       required: true

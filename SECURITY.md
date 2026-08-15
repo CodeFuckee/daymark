@@ -1,32 +1,30 @@
-# 安全策略
+# Security Policy
 
-感谢你对 Daymark 安全性的关注。本文档说明如何报告漏洞与本项目对安全的处理方式。
+Thanks for your interest in Daymark's security. This document explains how to report vulnerabilities and how this project handles security.
 
-## 支持的版本
+> 中文文档：[SECURITY_cn.md](SECURITY_cn.md)
 
-本项目滚动发布，仅**最新版本**（GitLab / GitHub 最新 release）接收安全修复。
-旧版本请先升级到最新版后再验证问题是否仍存在。
+## Supported Versions
 
-## 报告漏洞
+This project uses rolling releases; only the **latest version** (the newest release on GitLab / GitHub) receives security fixes. For older versions, please upgrade to the latest version first and verify whether the issue still exists.
 
-发现安全漏洞请通过 [GitLab Issue](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues)
-提交**机密 Issue**（勾选「This issue is confidential」），并包含：
+## Reporting a Vulnerability
 
-- 受影响版本与平台（macOS / Linux / Windows）
-- 漏洞类型与影响范围（如敏感信息泄露、任意文件读写等）
-- 最小复现步骤与验证材料（PoC、日志、堆栈）
-- 你的联系与期望的披露时间
+If you find a security vulnerability, please submit a **confidential Issue** via [GitLab Issues](https://home.chenkaidi.top:509/chenkaidi/daymark/-/issues) (check "This issue is confidential"), including:
 
-## 处理流程
+- Affected version and platform (macOS / Linux / Windows)
+- Vulnerability type and impact scope (e.g. sensitive information disclosure, arbitrary file read/write)
+- Minimal reproduction steps and verification materials (PoC, logs, stack traces)
+- Your contact and preferred disclosure timeline
 
-1. 收到机密 Issue 后在 7 天内确认并开始评估；
-2. 修复经测试验证后随新版本发布；
-3. 确认已修复并经你同意后公开披露（默认在修复版本发布后 30 天）。
+## Handling Process
 
-## 范围与边界
+1. Acknowledge and start assessment within 7 days of receiving the confidential Issue;
+2. The fix ships in a new release after being verified by tests;
+3. Public disclosure after the fix is confirmed and with your consent (default: 30 days after the fixed release).
 
-- 本应用为个人自用工具，本地数据（Markdown 日志、设置）由用户自行保管；
-- 自动更新包经 sha256 校验（GitHub release 的 asset digest），仅信任
-  GitLab / GitHub 官方 release 渠道；
-- 依赖上游（Flutter、Rust crates、LLM 接口服务）的漏洞不在本仓库修复范围内，
-  请向对应上游报告。
+## Scope & Boundaries
+
+- This app is a personal tool; local data (Markdown logs, settings) is kept by the user;
+- Auto-update packages are sha256-verified (asset digest of GitHub releases), and only official GitLab / GitHub release channels are trusted;
+- Vulnerabilities in upstream dependencies (Flutter, Rust crates, LLM endpoint services) are out of scope for this repository — please report them to the respective upstreams.
