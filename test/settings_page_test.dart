@@ -12,6 +12,7 @@ library;
 
 import 'dart:async';
 
+import 'package:daymark/core/about/about_info.dart';
 import 'package:daymark/core/models/settings.dart';
 import 'package:daymark/core/services/collect_service.dart';
 import 'package:daymark/core/services/notification_service.dart';
@@ -24,6 +25,7 @@ import 'package:daymark/ui/app_controller.dart';
 import 'package:daymark/ui/pages/settings_page.dart';
 import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -186,6 +188,101 @@ void main() {
       await tester.tap(find.text('保存设置'));
       await tester.pumpAndSettle();
       expect(saved?.watchDirs, ['/manual/dir']);
+    });
+  });
+  group('关于板块（issue #7）：诊断信息展示 + 一键复制', () {
+    testWidgets('设置页底部显示关于板块：应用名/版本占位/操作系统条目', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(_wrap(controller));
+
+      // 拉高测试窗口，让整个设置列表一次性构建（ListView 懒构建，
+      // 默认 800x600 窗口装不下列表末尾的关于板块）
+      tester.view.physicalSize = const Size(800, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      expect(find.text('关于'), findsOneWidget);
+      expect(find.text('Daymark'), findsOneWidget, reason: '应显示应用名');
+      expect(find.text('版本号: 开发构建（未注入版本号）'), findsOneWidget,
+          reason: '测试环境未注入版本号应显示占位');
+      expect(find.text('构建时间: 开发构建（未注入构建时间）'), findsOneWidget,
+          reason: '测试环境未注入构建时间应显示占位');
+      // 测试运行在真实宿主（Linux）上，操作系统条目应显示非占位值
+      final osText = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data)
+          .firstWhere((d) => d?.startsWith('操作系统:') == true, orElse: () => null);
+      expect(osText, isNotNull, reason: '应显示操作系统条目');
+      expect(osText, contains('linux'), reason: '测试宿主为 Linux');
+    });
+
+    testWidgets('点击复制按钮：剪贴板收到诊断文本并弹出提示', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(_wrap(controller));
+
+      // mock 系统平台通道，捕获 Clipboard.setData 调用
+      final clipboardCalls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final args = call.arguments as Map<dynamic, dynamic>;
+            clipboardCalls.add(args['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      tester.view.physicalSize = const Size(800, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+      await tester.tap(find.byTooltip('复制诊断信息'));
+      await tester.pump();
+
+      expect(clipboardCalls, hasLength(1), reason: '点击后应写入剪贴板一次');
+      final copied = clipboardCalls.single;
+      expect(copied, startsWith('Daymark 诊断信息\n'));
+      expect(copied, contains('版本号: 开发构建（未注入版本号）'));
+      expect(copied, contains('操作系统: '));
+      expect(find.text('诊断信息已复制'), findsOneWidget, reason: '应弹出复制成功提示');
+    });
+
+    testWidgets('复制文本包含全部条目标签（不丢调试信息）', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(_wrap(controller));
+
+      final clipboardCalls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final args = call.arguments as Map<dynamic, dynamic>;
+            clipboardCalls.add(args['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      tester.view.physicalSize = const Size(800, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+      await tester.tap(find.byTooltip('复制诊断信息'));
+      await tester.pump();
+
+      final copied = clipboardCalls.single;
+      // 与 AboutInfo 条目一一对应：每个标签都出现在复制文本中
+      final info = AboutInfo.collect(appVersion: null);
+      for (final entry in info.entries) {
+        expect(copied, contains('${entry.key}: '),
+            reason: '复制文本应包含「${entry.key}」标签');
+      }
     });
   });
 }

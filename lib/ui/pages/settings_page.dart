@@ -5,8 +5,10 @@ library;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/about/about_info.dart';
 import '../../core/models/settings.dart';
 import '../app_controller.dart';
 
@@ -313,6 +315,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           ]),
           _updateSection(),
+          _aboutSection(),
           const SizedBox(height: 24),
         ],
       ),
@@ -407,6 +410,37 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _draft.update.autoCheck = v;
           _dirty = true;
         }),
+      ),
+    ]);
+  }
+
+  /// 关于板块（issue #7）：版本号 / 构建时间 / 操作系统等诊断信息 + 一键复制。
+  /// 信息来自 [AboutInfo.collect]（版本号复用更新板块的 CI 注入值），
+  /// 复制文本可直接粘贴到 Issue / 聊天窗口帮助调试与复现。
+  Widget _aboutSection() {
+    final controller = ref.read(appControllerProvider.notifier);
+    final info = AboutInfo.collect(appVersion: controller.updateConfig.appVersion);
+    final messenger = ScaffoldMessenger.of(context);
+    return _section('关于', [
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.info_outline),
+        title: Text(info.appName),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final entry in info.entries.skip(1))
+              Text('${entry.key}: ${entry.value}'),
+          ],
+        ),
+        trailing: IconButton(
+          tooltip: '复制诊断信息',
+          icon: const Icon(Icons.copy_all),
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: info.toCopyText()));
+            messenger.showSnackBar(const SnackBar(content: Text('诊断信息已复制')));
+          },
+        ),
       ),
     ]);
   }
