@@ -24,6 +24,9 @@ abstract class CodeProvider {
     required CodeInstance instance,
     required String token,
     required String author,
+    /// 并入采集的额外账户（issue #20）：agent/code01 等辅助账户的提交
+    /// 与主作者的提交一并保留
+    List<String> extraAuthors = const [],
   });
 }
 
@@ -83,6 +86,14 @@ List<String> splitAuthorValues(String author) => author
     .map((e) => e.trim())
     .where((e) => e.isNotEmpty)
     .toList();
+
+/// 主作者与额外账户合并为作者过滤串（issue #20）：agent/code01 等辅助
+/// 账户的提交并入采集。两者逗号连接后交给 [authorMatches] 的多值匹配。
+String mergeAuthorFilter(String author, List<String> extraAuthors) =>
+    [author, ...extraAuthors]
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .join(',');
 
 /// 作者匹配（issue #9）：配置值与 commit 作者字段（姓名/邮箱/登录名）做
 /// 双向子串匹配、不区分大小写；配置多个值时任一命中即匹配。

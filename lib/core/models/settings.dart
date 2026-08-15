@@ -15,6 +15,9 @@ class AppSettings {
 
   // ── 代码 ──
   List<CodeInstance> codeInstances;
+  /// 并入代码提交的账户（issue #20）：agent/code01 等辅助账户的提交
+  /// 也计入素材——刷新素材时这些账户的提交不再被作者过滤丢弃。
+  List<String> extraCommitAuthors;
 
   // ── 目录监控 ──
   List<String> watchDirs;
@@ -48,6 +51,7 @@ class AppSettings {
     this.authorName = '',
     this.timezone = '+08:00',
     this.codeInstances = const [],
+    this.extraCommitAuthors = const [],
     this.watchDirs = const [],
     this.excludePatterns = defaultExcludePatterns,
     this.audioDir = '',
@@ -72,6 +76,7 @@ class AppSettings {
         'authorName': authorName,
         'timezone': timezone,
         'codeInstances': codeInstances.map((e) => e.toJson()).toList(),
+        'extraCommitAuthors': extraCommitAuthors,
         'watchDirs': watchDirs,
         'excludePatterns': excludePatterns,
         'audioDir': audioDir,
@@ -89,6 +94,9 @@ class AppSettings {
         codeInstances: (json['codeInstances'] as List? ?? [])
             .map((e) => CodeInstance.fromJson(e as Map<String, dynamic>))
             .toList(),
+        // 键缺失（老版本配置）回退空列表，与 watchDirs 等列表字段语义一致
+        extraCommitAuthors:
+            List<String>.from(json['extraCommitAuthors'] as List? ?? const []),
         watchDirs: List<String>.from(json['watchDirs'] as List? ?? const []),
         // 键缺失（老版本配置）回退默认排除规则；键存在但为空列表是用户
         // 主动清空，保留用户意图（issue #17）

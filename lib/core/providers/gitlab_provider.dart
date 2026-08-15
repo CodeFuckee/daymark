@@ -25,6 +25,7 @@ class GitLabProvider implements CodeProvider {
     required CodeInstance instance,
     required String token,
     required String author,
+    List<String> extraAuthors = const [],
   }) async {
     final base = _apiBase(instance.baseUrl);
     String auth() => 'Bearer $token';
@@ -43,8 +44,11 @@ class GitLabProvider implements CodeProvider {
     );
 
     // 2. 多项目并行拉 commit
+    // 主作者 + 额外账户合并为过滤串（issue #20）
+    final authorFilter = mergeAuthorFilter(author, extraAuthors);
     final results = await Future.wait(
-      projects.map((p) => _fetchProjectCommits(p, base, token, date, instance, author)),
+      projects.map(
+          (p) => _fetchProjectCommits(p, base, token, date, instance, authorFilter)),
     );
     return results.expand((e) => e).toList();
   }
@@ -55,7 +59,7 @@ class GitLabProvider implements CodeProvider {
     String token,
     DateTime date,
     CodeInstance instance,
-    String author,
+    String authorFilter,
   ) async {
     final path = project['path_with_namespace'] as String? ?? project['path'] as String? ?? '';
     if (path.isEmpty) return const [];
@@ -105,12 +109,13 @@ class GitLabProvider implements CodeProvider {
           .where((c) => c.sha.isNotEmpty)
           .toList();
       final filtered = maps
-          .map((c) => toCommit(c, authorFilter: author))
+          .map((c) => toCommit(c, authorFilter: authorFilter))
           .whereType<Commit>()
           .where((c) => c.sha.isNotEmpty)
           .toList();
       // 作者过滤无命中 → 放行全部：配置署名（如中文名）与 git 用户名
-      // 不一致时不应让"当日有提交"变成"当日无提交"（issue #9）
+      // 不一致时不应让"当日有提交"变成"当日无提交"（issue #9）；
+      // 有命中时仅保留主作者 + 额外账户（issue #20）的提交
       if (filtered.isEmpty && all.isNotEmpty) return all;
       return filtered;
     } on DioException catch (e) {

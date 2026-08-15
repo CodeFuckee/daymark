@@ -53,4 +53,18 @@ void main() {
     expect(parsed.excludePatterns, contains('.git'),
         reason: '回退的是完整默认列表，而不是只补 .daymark');
   });
+
+  test('extraCommitAuthors 序列化往返（issue #20）', () {
+    final original = AppSettings(extraCommitAuthors: const ['agent', 'code01']);
+    final roundtrip = AppSettings.fromJson(original.toJson());
+    expect(roundtrip.extraCommitAuthors, ['agent', 'code01']);
+  });
+
+  test('extraCommitAuthors 键缺失时为空列表且可修改（issue #20）', () {
+    final parsed = AppSettings.fromJson(const {});
+    expect(parsed.extraCommitAuthors, isEmpty,
+        reason: '老版本 settings.json 无该字段，升级后应为空（不并入额外账户）');
+    parsed.extraCommitAuthors.add('agent');
+    expect(parsed.extraCommitAuthors, ['agent']);
+  });
 }

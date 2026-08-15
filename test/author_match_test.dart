@@ -54,4 +54,29 @@ void main() {
       expect(authorMatches('张三,李四', userFields), isFalse);
     });
   });
+
+  group('mergeAuthorFilter（issue #20：并入代码提交的账户）', () {
+    test('主作者与额外账户逗号连接', () {
+      expect(mergeAuthorFilter('chenkaidi', ['agent', 'code01']),
+          'chenkaidi,agent,code01');
+    });
+
+    test('额外账户为空时等价于主作者', () {
+      expect(mergeAuthorFilter('chenkaidi', []), 'chenkaidi');
+      expect(mergeAuthorFilter('chenkaidi', ['  ', '']), 'chenkaidi');
+    });
+
+    test('主作者为空仅返回额外账户', () {
+      expect(mergeAuthorFilter('', ['agent']), 'agent');
+    });
+
+    test('两者皆空返回空串（不过滤）', () {
+      expect(mergeAuthorFilter('', []), '');
+    });
+
+    test('额外账户含空白段时被清理', () {
+      expect(mergeAuthorFilter('chenkaidi', [' agent ', '', 'code01']),
+          'chenkaidi,agent,code01');
+    });
+  });
 }

@@ -118,6 +118,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             _dirField('日志根目录', _draft.logRoot, (v) => _draft.logRoot = v),
             _textField('作者名（署名 + commit 过滤，多个用逗号分隔）',
                 _draft.authorName, (v) => _draft.authorName = v),
+            _textField('并入代码提交的账户（如 agent/code01，多个用逗号分隔）',
+                _draft.extraCommitAuthors.join(','), (v) {
+              _draft.extraCommitAuthors =
+                  v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            }),
             _textField('时区（自然日）', _draft.timezone, (v) => _draft.timezone = v),
           ]),
           _section('代码', [

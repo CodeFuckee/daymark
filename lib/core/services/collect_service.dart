@@ -124,6 +124,8 @@ class CollectService {
           instance: instance,
           token: token,
           author: settings.authorName,
+          // 并入代码提交的账户（issue #20）：agent/code01 等辅助账户
+          extraAuthors: settings.extraCommitAuthors,
         );
       } catch (e) {
         // 单个实例失败不阻断整体（如网络、权限）

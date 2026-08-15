@@ -122,6 +122,50 @@ void main() {
     expect(find.text('保存中…'), findsNothing);
   });
 
+  group('并入代码提交的账户（issue #20）', () {
+    testWidgets('输入额外账户保存：逗号分隔写入 extraCommitAuthors', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(onSave: (next) async => saved = next);
+      await tester.pumpWidget(_wrap(controller));
+
+      final field = find.widgetWithText(
+          TextField, '并入代码提交的账户（如 agent/code01，多个用逗号分隔）');
+      expect(field, findsOneWidget, reason: '设置页日志区块应包含该设置项');
+
+      await tester.enterText(field, 'agent, code01, ');
+      await tester.pump();
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.extraCommitAuthors, ['agent', 'code01'],
+          reason: '空白段应被清理，仅保留有效账户');
+    });
+
+    testWidgets('清空输入保存：extraCommitAuthors 为空列表', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(
+        onSave: (next) async => saved = next,
+        initial: AppSettings(
+          authorName: '测试',
+          extraCommitAuthors: const ['agent'],
+        ),
+      );
+      await tester.pumpWidget(_wrap(controller));
+
+      final field = find.widgetWithText(
+          TextField, '并入代码提交的账户（如 agent/code01，多个用逗号分隔）');
+      expect(tester.widget<TextField>(field).controller!.text, 'agent',
+          reason: '已配置的额外账户应回显');
+
+      await tester.enterText(field, '');
+      await tester.pump();
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+
+      expect(saved?.extraCommitAuthors, isEmpty);
+    });
+  });
+
   group('目录监控（issue #11）：添加监控目录改为目录选择器', () {
     late FileSelectorPlatform original;
 

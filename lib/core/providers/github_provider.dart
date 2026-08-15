@@ -22,6 +22,7 @@ class GitHubProvider implements CodeProvider {
     required CodeInstance instance,
     required String token,
     required String author,
+    List<String> extraAuthors = const [],
   }) async {
     final base = instance.baseUrl.trim().isEmpty
         ? 'https://api.github.com'
@@ -42,8 +43,11 @@ class GitHubProvider implements CodeProvider {
     );
 
     // 2. 并行拉每仓库 commit
+    // 主作者 + 额外账户合并为过滤串（issue #20）
+    final authorFilter = mergeAuthorFilter(author, extraAuthors);
     final results = await Future.wait(
-      repos.map((r) => _fetchRepoCommits(r, base, token, date, instance, author)),
+      repos.map(
+          (r) => _fetchRepoCommits(r, base, token, date, instance, authorFilter)),
     );
     return results.expand((e) => e).toList();
   }
@@ -54,7 +58,7 @@ class GitHubProvider implements CodeProvider {
     String token,
     DateTime date,
     CodeInstance instance,
-    String author,
+    String authorFilter,
   ) async {
     final fullName = repo['full_name'] as String? ?? '';
     if (fullName.isEmpty) return const [];
@@ -107,12 +111,13 @@ class GitHubProvider implements CodeProvider {
           .where((c) => c.sha.isNotEmpty)
           .toList();
       final filtered = maps
-          .map((c) => toCommit(c, authorFilter: author))
+          .map((c) => toCommit(c, authorFilter: authorFilter))
           .whereType<Commit>()
           .where((c) => c.sha.isNotEmpty)
           .toList();
       // 作者过滤无命中 → 放行全部：配置署名（如中文名）与 git 用户名
-      // 不一致时不应让"当日有提交"变成"当日无提交"（issue #9）
+      // 不一致时不应让"当日有提交"变成"当日无提交"（issue #9）；
+      // 有命中时仅保留主作者 + 额外账户（issue #20）的提交
       if (filtered.isEmpty && all.isNotEmpty) return all;
       return filtered;
     } on DioException catch (e) {
