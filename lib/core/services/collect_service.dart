@@ -69,6 +69,25 @@ class CollectService {
           .toList();
     }
 
+    // 补扫磁盘（issue #19 第二轮）：缓存只来自监控运行时的事件流，查看
+    // 历史日期时当天应用未运行/监控未开启则缓存为空，刷新素材看不到当日
+    // 修改的文件（用户找不到 2026.8.6 修改过的 .skp）。补扫监控目录中
+    // mtime 落在所选日期的文件，与缓存按 path 合并——缓存记录优先保留
+    // （云盘同步重写 mtime 后旧快照不丢），扫描只补充缺失的路径。
+    if (watchDirs.isNotEmpty) {
+      onProgress?.call('扫描文件变更');
+      final scanned = await _scanDate(watchDirs, d);
+      if (scanned.isNotEmpty) {
+        final byPath = <String, FileChange>{for (final c in fileChanges) c.path: c};
+        for (final s in scanned) {
+          byPath.putIfAbsent(s.path, () => s);
+        }
+        fileChanges = byPath.values.toList();
+        // 扫描补充的记录写回缓存，后续刷新/生成日报直接复用
+        await _persistScanned(d, scanned);
+      }
+    }
+
     // 对新增/修改的文档做内容提取（失败降级为仅记录文件名）
     onProgress?.call('提取文档要点');
     final extracted = await _extractDocuments(fileChanges);
@@ -228,7 +247,21 @@ class CollectService {
   /// 初始扫描：把 [dirs] 中 mtime 在今日 00:00 之后的文件合并进当日素材缓存。
   /// 单目录失效/不可访问时跳过该目录，不中断其余目录（issue #13 方案 B）。
   Future<void> _scanToday(List<String> dirs) async {
-    final since = dayStart(DateTime.now());
+    final scanned = await _scanDate(dirs, DateTime.now());
+    for (final change in scanned) {
+      // 扫描发现的是存量文件，按"已修改"记录
+      await _mergeIntoCache(change);
+    }
+  }
+
+  /// 扫描 [dirs] 中 mtime 落在 [date] 自然日的文件（issue #19 第二轮：
+  /// 刷新素材补扫——issue #13 的初始扫描只补「今日」，历史日期从不补扫）。
+  /// 单目录失效/不可访问时跳过该目录，不中断其余目录；递归不跟随符号链接；
+  /// .daymark 自身缓存与排除规则命中的文件一律跳过（与事件流过滤一致）。
+  Future<List<FileChange>> _scanDate(List<String> dirs, DateTime date) async {
+    final since = dayStart(date);
+    final until = since.add(const Duration(days: 1));
+    final result = <FileChange>[];
     for (final dir in dirs) {
       try {
         await for (final entity
@@ -239,8 +272,10 @@ class CollectService {
           }
           final stat = entity.statSync();
           if (stat.type == FileSystemEntityType.notFound) continue;
-          if (stat.modified.isBefore(since)) continue;
-          await _mergeIntoCache(FileChange(
+          if (stat.modified.isBefore(since) || !stat.modified.isBefore(until)) {
+            continue;
+          }
+          result.add(FileChange(
             path: entity.path,
             mtime: stat.modified,
             size: stat.size,
@@ -251,7 +286,27 @@ class CollectService {
         stderr.writeln('[daymark] scan watched dir failed for $dir: $e');
       }
     }
+    return result;
   }
+
+  /// 把补扫出的文件变更合并进 [date] 的素材缓存（串入缓存写链，避免与
+  /// 事件 flush / 初始扫描并发时 load-modify-save 交错丢记录）。扫描结果
+  /// 按 path 覆盖缓存记录（磁盘 mtime 是最新的）；缓存里扫描未覆盖的
+  /// 其他记录（含 mtime 已移出该日的旧快照）原样保留。
+  Future<void> _persistScanned(DateTime date, List<FileChange> scanned) =>
+      _enqueueCacheWrite(() async {
+        final cached = await loadMaterialCache(settings.logRoot, date);
+        final byPath = <String, FileChange>{
+          for (final c in cached?.fileChanges ?? const <FileChange>[]) c.path: c,
+        };
+        for (final s in scanned) {
+          byPath[s.path] = s;
+        }
+        await saveMaterialCache(
+          settings.logRoot,
+          DailyMaterial(date: dayStart(date), fileChanges: byPath.values.toList()),
+        );
+      });
 
   /// 5s 节流批处理：stat 后按 mtime 归档到自然日缓存
   Future<void> _flushPending() async {
