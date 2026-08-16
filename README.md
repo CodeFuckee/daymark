@@ -113,13 +113,13 @@ GitHub source sync: after every push to main, the source is synced automatically
 
 **Mechanism**: update source addresses are baked into the app at packaging time via `--dart-define` (build-time injection, read-only at runtime). GitLab CI packaging → checks GitLab repository releases (`prepare-version` job generates `DAYMARK_UPDATE_SOURCES_B64`, `scripts/update_defines.py`); GitHub Actions packaging → checks GitHub repository releases. When both are injected, the highest version wins.
 
-**Flow**: background check at startup → auto download (sha256 verification, asset digest for GitHub releases) → system notification + settings page hint when done → update completes automatically when the user restarts the app:
+**Flow**: background check at startup (or when "Check for updates" is clicked) → auto download (sha256 verification, asset digest for GitHub releases) → when the download completes a dialog pops up automatically asking the user to restart now or later ("Restart later" keeps the manual "Restart & update" button on the settings page) → update completes automatically when the app restarts:
 
 - **Linux**: new AppImage atomically replaces the file `$APPIMAGE` points to → launches the new version
 - **macOS**: mounts the dmg → `ditto` overwrites `Daymark.app` → clears quarantine → launches the new version
 - **Windows**: launches the NSIS installer with `/S /UPDATE` for silent overwrite install and auto-start of the new version
 
-Update packages are cached in `<app support dir>/update/` (manifest.json + installer) and installed by `main()` on restart. The settings page has "Check for updates / Restart & update" buttons, the tray menu has "Check for updates", and the "check at startup" toggle can be disabled in settings. Local dev builds (no update source injected) have the whole update feature disabled.
+Update packages are cached in `<app support dir>/update/` (manifest.json + installer) and installed by `main()` on restart. When a download completes, a "Restart now / Restart later" dialog pops up automatically (a single completed download only prompts once; a later re-check with another completed download prompts again; the window switches back to the main-window form so the dialog is visible even in quick-note mode or when hidden to the tray). The settings page has "Check for updates / Restart & update" buttons, the tray menu has "Check for updates", and the "check at startup" toggle can be disabled in settings. Local dev builds (no update source injected) have the whole update feature disabled.
 
 **Version consistency**: release versions are computed by `scripts/next_version.py` (latest GitLab releases tag patch+1); build artifacts embed the same version via `--build-name`, and `publish-release` publishes the same tag — artifact versions strictly match release tags, and update detection compares semver.
 

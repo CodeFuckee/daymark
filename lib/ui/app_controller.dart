@@ -566,6 +566,9 @@ class AppController extends Notifier<AppState> {
       state = state.copyWith(
         updateStatus: UpdateStatus.ready(manifest.version),
       );
+      // 恢复主窗口（issue #29）：下载完成时可能处于随手记录弹窗或隐藏到
+      // 托盘，先切回主窗口形态，保证自动弹出的重启对话框可见。
+      onWindowModeChanged?.call(WindowMode.main);
       await notificationService.show(
         title: '发现新版本 ${info.tag}',
         body: '已在后台下载完成，重启软件后自动完成更新。',
@@ -578,14 +581,16 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// 重启并安装更新（Linux/macOS 安装后自动重启进入新版；Windows 启动安装器）
-  Future<void> restartToUpdate() async {
+  /// 重启并安装更新（Linux/macOS 安装后自动重启进入新版；Windows 启动安装器）。
+  /// 返回是否已进入安装流程：false 表示未找到更新包或当前环境不支持自动安装
+  /// （调用方据此向用户反馈，如重启对话框的错误提示，issue #29）。
+  Future<bool> restartToUpdate() async {
     final manifest = await updateService.loadManifest();
     if (manifest == null) {
       state = state.copyWith(
         updateStatus: const UpdateStatus.error('未找到已下载的更新包，请重新检查更新'),
       );
-      return;
+      return false;
     }
     final installer = UpdateInstaller();
     final ok = await installer.install(
@@ -599,6 +604,7 @@ class AppController extends Notifier<AppState> {
         updateStatus: UpdateStatus.error(plan.reason ?? '当前环境不支持自动安装，请手动下载新版本'),
       );
     }
+    return ok;
   }
 
   // ─────────────────────────── 通知 ───────────────────────────

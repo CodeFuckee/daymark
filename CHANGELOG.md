@@ -23,6 +23,26 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Added
 
+- Auto-popup restart dialog after an update download completes (issue #29):
+  after clicking "Check for updates" (or a startup auto-check) finds a new
+  version, the latest package is downloaded in the background (sha256
+  verification, manifest written) and a dialog pops up automatically prompting
+  the user to restart, with "Restart now" / "Restart later" options —
+  "Restart now" runs the existing platform install flow (Linux AppImage atomic
+  replacement / macOS dmg overwrite / Windows NSIS silent install), and when
+  the environment is unsupported or the package is missing the dialog shows a
+  clear error reason; "Restart later" closes the dialog and the "Restart &
+  update" button on the settings page remains available for manual triggering.
+  The popup is triggered by the update phase transitioning to ready: the same
+  completed download never pops twice, while a later re-check with another
+  completed download pops again; on completion the window is switched back to
+  the main-window form so the dialog is visible even in quick-note popup mode
+  or when hidden to the tray. Added 10 tests in `update_restart_dialog_test.dart`
+  (auto popup on download complete, restart-later does not re-pop, restart-now
+  calls restartToUpdate, restart-now failure shows the error dialog, download
+  failure does not pop, re-download of the same version pops again, local dev
+  build never pops, re-entrant trigger guard, download complete restores main
+  window, restartToUpdate returns false with no manifest)
 - "Fetch models" button in the add-provider dialog (issue #27): clicking it
   pulls the model list via the provider's official API (Claude `GET /v1/models`,
   DeepSeek / OpenAI-compatible `GET /v1/models`, Ollama `GET /api/tags`); on

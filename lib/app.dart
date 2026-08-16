@@ -7,8 +7,9 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'ui/app_controller.dart';
-import 'ui/quick_note_view.dart';
 import 'ui/main_window.dart';
+import 'ui/quick_note_view.dart';
+import 'ui/update_restart_dialog.dart';
 
 class DaymarkApp extends ConsumerStatefulWidget {
   /// 窗口物理形态回调（main.dart 注入 window_manager 控制）
@@ -108,7 +109,13 @@ class _DaymarkAppState extends ConsumerState<DaymarkApp>
       title: 'Daymark',
       theme: theme,
       debugShowCheckedModeBanner: false,
-      home: mode == WindowMode.quickNote ? const QuickNoteView() : const MainWindow(),
+      // 外层包更新重启对话框宿主（issue #29）：下载完成自动弹窗提示重启，
+      // 主窗口 / 随手记录弹窗两种形态下都保持监听。
+      home: UpdateRestartDialogHost(
+        child: mode == WindowMode.quickNote
+            ? const QuickNoteView()
+            : const MainWindow(),
+      ),
     );
   }
 }

@@ -126,15 +126,18 @@ Actions artifacts，适合对外分发。tag 触发时注入版本（tag 去 v�
 `DAYMARK_UPDATE_SOURCES_B64`，`scripts/update_defines.py`）；GitHub Actions
 打包 → 检测 GitHub 仓库 release。两者同时注入则全查取版本最高者。
 
-**流程**：启动时后台检测新版本 → 自动下载（sha256 校验，GitHub release 的
-asset digest）→ 下载完成系统通知 + 设置页提示 → 用户重启软件时自动完成更新：
+**流程**：启动时后台检测新版本（或点击「检查更新」）→ 自动下载（sha256 校验，
+GitHub release 的 asset digest）→ 下载完成自动弹出对话框提示重启（可立即
+重启或稍后重启，稍后可在设置页点「重启并更新」），重启软件时自动完成更新：
 
 - **Linux**：新 AppImage 原子替换 `$APPIMAGE` 指向的文件 → 启动新版
 - **macOS**：挂载 dmg → `ditto` 覆盖 `Daymark.app` → 清除 quarantine → 启动新版
 - **Windows**：启动 NSIS 安装器 `/S /UPDATE` 静默覆盖安装并自动启动新版
 
 更新包缓存在 `<应用支持目录>/update/`（manifest.json + 安装包），重启时由
-`main()` 检查安装。设置页有"检查更新 / 重启并更新"按钮，托盘菜单有"检查更新"，
+`main()` 检查安装。下载完成自动弹出「立即重启 / 稍后重启」对话框（同一次
+下载完成只提示一次，稍后再检查并下载完成会重新提示；下载完成自动切回主窗口
+保证对话框可见）；设置页有"检查更新 / 重启并更新"按钮，托盘菜单有"检查更新"，
 "启动时自动检查更新"开关可在设置页关闭。本地开发构建（未注入更新源）更新
 功能整体禁用。
 
