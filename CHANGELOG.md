@@ -23,6 +23,19 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Added
 
+- New mouse-hover row highlight in the "Local file changes" list (issue #24):
+  hovering over a file-change record highlights that row with a soft rounded
+  background (theme `primaryContainer` at low opacity), restoring smoothly on
+  mouse-out so the current row is easy to track; with multiple rows only the
+  hovered row is highlighted, and hovering the in-row "Add as exclusion"
+  button counts as hovering the row; the other material cards (quick notes /
+  commits, etc.) do not enable hover highlighting, keeping the visual style
+  consistent
+- New tests: 5 in `home_page_file_changes_hover_highlight_test.dart` (highlight
+  appears on hover and restores on mouse-out, only the hovered row highlighted
+  with consecutive switching, in-row button area counts as row hover,
+  highlight does not spread to other cards, empty list keeps its empty state
+  without crashing)
 - New "Add as exclusion" button on each row of the "Local file changes" list (issue #18):
   one click adds that file's full path to the exclusion rules (same substring-matching semantics as the Rust-side `is_excluded`; the full path excludes exactly that file). After saving, directory watching rebuilds under the new rules and read-side exclusion filtering takes effect immediately — the file disappears from the list right away. Paths already matching existing exclusion rules are not added again; empty/whitespace-only paths are ignored; on persistence failure the list stays unchanged and the failure is surfaced (SnackBar feedback). The settings page "Exclusion rules (comma-separated)" still allows viewing, editing, and removing all rules (accidental additions can be deleted there)
 - New tests: 7 unit tests for `AppController.addExcludePattern` (normal add, hit existing rule, empty/whitespace-only path, duplicate add, consecutive adds of different paths, extremely long and special-character paths, persistence failure bubbling) + 4 daily-report-page UI tests (button rendered per row, file disappears with a hint after clicking, empty state after excluding everything, all items shown beyond 8 rows (revised in issue #19), save-failure hint)

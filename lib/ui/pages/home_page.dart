@@ -246,6 +246,8 @@ class _HomePageState extends ConsumerState<HomePage> {
               .toList(),
           // issue #18：每条记录右侧快捷按钮，一键把该文件添加为排除项
           trailingBuilder: (i) => _excludeButton(material.fileChanges[i]),
+          // issue #24：鼠标悬停到某一行时该行高亮，便于跟随鼠标定位当前行
+          highlightOnHover: true,
           emptyText: '当日无文件变更',
         ),
         _MaterialCard(
@@ -334,12 +336,17 @@ class _MaterialCard extends StatelessWidget {
   /// 参数为条目在 [items] 中的下标，返回 null 则该条目不加附加操作。
   final Widget? Function(int index)? trailingBuilder;
 
+  /// 行悬停高亮开关（issue #24）：为 true 时鼠标悬停到行上该行高亮、
+  /// 移出恢复。默认关闭，仅「本地文件变更」卡片开启，避免影响其他卡片。
+  final bool highlightOnHover;
+
   const _MaterialCard({
     required this.title,
     required this.icon,
     required this.items,
     required this.emptyText,
     this.trailingBuilder,
+    this.highlightOnHover = false,
   });
 
   @override
@@ -371,9 +378,10 @@ class _MaterialCard extends StatelessWidget {
               // 8 条时其余文件看不到——用户找不到当日修改过的 .skp 文件。
               // 列表整体在 ListView 内滚动，全部展示不影响布局）。
               ...items.indexed.map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Row(
+                    (entry) {
+                      // issue #24：悬停高亮时每行外包 _HoverHighlight
+                      // （容器 key 供测试断言悬停状态）
+                      final row = Row(
                         children: [
                           Expanded(
                             child: Text(entry.$2,
@@ -382,11 +390,62 @@ class _MaterialCard extends StatelessWidget {
                           if (trailingBuilder != null)
                             trailingBuilder!(entry.$1) ?? const SizedBox.shrink(),
                         ],
-                      ),
-                    ),
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: highlightOnHover
+                            ? _HoverHighlight(
+                                containerKey:
+                                    ValueKey('hover-row-${entry.$1}'),
+                                child: row,
+                              )
+                            : row,
+                      );
+                    },
                   ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 行悬停高亮容器（issue #24）：MouseRegion 感知鼠标进出，悬停时
+/// AnimatedContainer 平滑切换为浅色圆角背景，移出后恢复透明。
+class _HoverHighlight extends StatefulWidget {
+  final Widget child;
+
+  /// 传给内部高亮容器的 key（测试据此断言悬停状态）
+  final Key? containerKey;
+
+  const _HoverHighlight({required this.child, this.containerKey});
+
+  @override
+  State<_HoverHighlight> createState() => _HoverHighlightState();
+}
+
+class _HoverHighlightState extends State<_HoverHighlight> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        key: widget.containerKey,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          // 高亮色取自主题 primaryContainer 低透明度，圆角贴合卡片圆角
+          color: _hovered
+              ? scheme.primaryContainer.withValues(alpha: 0.35)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: widget.child,
       ),
     );
   }

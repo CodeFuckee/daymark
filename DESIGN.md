@@ -219,7 +219,8 @@ CodeProvider
 - Events (Create/Modify/Remove) → throttled aggregation (e.g. 5s batches) → record changes: path, mtime, size, operation type
 - Attributed to natural days by mtime, consistent with existing collect.py semantics
 - Exclusion rules: hidden files, `@eaDir`, `node_modules`, .git, etc. (configurable on the settings page);
-  on the daily-report page each "local file changes" row has a button to quickly add that file to the exclusion rules (issue #18)
+  on the daily-report page each "local file changes" row has a button to quickly add that file to the exclusion rules (issue #18);
+  hovering over a row highlights it with a soft rounded background and restores on mouse-out (issue #24) so the current row is easy to track
 - Change records are written to `.daymark/素材缓存/<date>.json` for the report pipeline to consume
 - Cloud-sync mtime false positives: dedupe Modify events whose "content hash unchanged" during aggregation (optional; v1 just records)
 
