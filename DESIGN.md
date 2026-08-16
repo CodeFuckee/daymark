@@ -280,7 +280,7 @@ Generation is **re-entrant**: the draft can be regenerated after materials chang
 | Code | GitLab/GitHub instance list (add/remove/edit), tokens, branches, filters |
 | Directory watching | watch directory list, exclusion rules |
 | Audio | audio directory, transcription base_url/key/model |
-| AI | provider selection (Claude/DeepSeek/Ollama) + per-provider key/base_url/model, tone preference |
+| AI | dynamic provider list (add/edit/delete, cc-switch style: "Add provider" pops a page to pick the type — Claude / DeepSeek / Ollama / OpenAI-compatible; issue #25) + main/fallback/meeting-blocked selection, tone preference |
 | Hotkeys | global hotkey, launch at login |
 | Notifications | generation reminder time, completion notification toggle |
 | About | app name, version, build time, OS, hostname, Dart version, CPU cores, system language + one-click copy diagnostics |
@@ -323,10 +323,23 @@ abstract class LLMProvider {
   String get id; String get name;
 }
 
-class ClaudeProvider    // claude_dart sdk, model e.g. claude-sonnet-5
-class DeepSeekProvider  // OpenAI protocol + base_url, model e.g. deepseek-chat
-class OllamaProvider    // http://localhost:11434, local models
+class ClaudeProvider             // Anthropic Messages API, model e.g. claude-sonnet-5
+class DeepSeekProvider           // OpenAI protocol + base_url, model e.g. deepseek-chat
+class OllamaProvider             // http://localhost:11434, local models
+class OpenAICompatibleProvider   // any OpenAI-compatible service (Groq/Volcano/Qwen etc.)
 ```
+
+- Providers are an **add/edit/delete instance list** (`AiSettings.providers`, issue #25):
+  each instance has a unique id, type, name, base_url, API key and model; the main
+  provider / fallback ordering / meeting-blocked lists all reference instance ids.
+  Legacy flat fields (claudeBaseUrl etc.) migrate into instances automatically, and
+  serialization still writes the legacy fields for downgrade compatibility
+- Settings page "Add provider" follows cc-switch: first a provider-type selection page
+  (Claude / DeepSeek / Ollama / OpenAI-compatible), then a configuration form; the
+  three defaults are pre-seeded and users can add any number of providers
+- Unified interface, prompt templates decoupled from providers
+- Failure fallback: main provider unavailable → automatically switch to fallbacks (priority configured in settings)
+- Sensitive-content policy: meeting material defaults to Ollama/DeepSeek and can be locked in settings (Yuexiu meeting content is company data; uploading to third-party APIs is a compliance risk; the settings page offers a "disable Claude for meeting content" option)
 
 - Unified interface; prompt templates decoupled from providers
 - Failure fallback: primary unavailable → automatic switch to backup (priority configurable in settings)

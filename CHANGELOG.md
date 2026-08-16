@@ -23,6 +23,25 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Added
 
+- Settings page AI providers are now a dynamic instance list (issue #25):
+  cc-switch-style — clicking "Add provider" pops a page to pick the provider type
+  (Claude / DeepSeek / Ollama / OpenAI-compatible; any number can be added, no
+  longer fixed at three), then a form for name/base_url/API key/model appends it
+  to the list; every provider can be edited or deleted; main provider, fallback
+  ordering and meeting-blocked lists are now picked/chip-selected from the
+  configured providers (deleting a provider automatically cleans its references
+  from main/fallback/meeting-blocked). Added an OpenAI-compatible adapter (any
+  OpenAI-protocol service, e.g. Groq / Volcano / Qwen); legacy flat-field
+  settings migrate into provider instances automatically, while serialization
+  still writes the legacy fields for downgrade compatibility
+- New tests (13): 7 in `settings_model_test.dart` (AiProvider round-trip, three
+  defaults pre-seeded, providers list round-trip, legacy flat-field migration,
+  empty list not re-seeded, providerById, removeProvider reference cleanup) +
+  3 in `llm_provider_test.dart` (custom instance created from config, deleted id
+  throws, OpenAI-compatible adapter, type default config) + 4 in
+  `settings_page_test.dart` (add-provider opens the type picker page, pick type +
+  fill form adds a card, delete card cleans references, empty-list hint)
+
 - New mouse-hover row highlight in the "Local file changes" list (issue #24):
   hovering over a file-change record highlights that row with a soft rounded
   background (theme `primaryContainer` at low opacity), restoring smoothly on

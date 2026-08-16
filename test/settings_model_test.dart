@@ -67,4 +67,122 @@ void main() {
     parsed.extraCommitAuthors.add('agent');
     expect(parsed.extraCommitAuthors, ['agent']);
   });
+
+    aiProviderGroup();
+}
+
+// ─────────────────────────── AI 供应商（issue #25） ───────────────────────────
+
+void aiProviderGroup() {
+  group('AI 供应商动态列表（issue #25）', () {
+    test('AiProvider 序列化往返', () {
+      final p = AiProvider(
+        id: 'deepseek-1',
+        type: 'deepseek',
+        name: '公司 DeepSeek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiKey: 'sk-xxx',
+        model: 'deepseek-reasoner',
+      );
+      final roundtrip = AiProvider.fromJson(p.toJson());
+      expect(roundtrip.id, 'deepseek-1');
+      expect(roundtrip.type, 'deepseek');
+      expect(roundtrip.name, '公司 DeepSeek');
+      expect(roundtrip.baseUrl, 'https://api.deepseek.com/v1');
+      expect(roundtrip.apiKey, 'sk-xxx');
+      expect(roundtrip.model, 'deepseek-reasoner');
+    });
+
+    test('默认设置自带三家供应商，主/备为空', () {
+      final ai = AiSettings();
+      expect(ai.providers.map((p) => p.id), ['claude', 'deepseek', 'ollama'],
+          reason: '默认仍预置三家，保证开箱即用');
+      expect(ai.provider, isEmpty);
+      expect(ai.fallback, isEmpty);
+    });
+
+    test('providers 列表序列化往返（含自定义 id 与 openai 类型）', () {
+      final ai = AiSettings(
+        provider: 'deepseek-1',
+        fallback: ['claude'],
+        conferenceBlocked: ['claude'],
+        providers: [
+          AiProvider(
+              id: 'claude', type: 'claude', name: 'Claude',
+              baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-5'),
+          AiProvider(
+              id: 'deepseek-1', type: 'deepseek', name: '公司 DeepSeek',
+              baseUrl: 'https://api.deepseek.com/v1', apiKey: 'sk-1',
+              model: 'deepseek-reasoner'),
+          AiProvider(
+              id: 'groq-1', type: 'openai', name: 'Groq',
+              baseUrl: 'https://api.groq.com/openai/v1', apiKey: 'sk-g',
+              model: 'llama-3.3-70b-versatile'),
+        ],
+      );
+      final roundtrip = AiSettings.fromJson(ai.toJson());
+      expect(roundtrip.provider, 'deepseek-1');
+      expect(roundtrip.fallback, ['claude']);
+      expect(roundtrip.conferenceBlocked, ['claude']);
+      expect(roundtrip.providers, hasLength(3));
+      expect(roundtrip.providers[1].name, '公司 DeepSeek');
+      expect(roundtrip.providers[1].apiKey, 'sk-1');
+      expect(roundtrip.providers[2].type, 'openai');
+      expect(roundtrip.providers[2].baseUrl, 'https://api.groq.com/openai/v1');
+    });
+
+    test('旧版扁平字段 JSON 迁移为 providers（id=类型名，主/备引用不变）', () {
+      final parsed = AiSettings.fromJson(const {
+        'provider': 'deepseek',
+        'fallback': ['claude'],
+        'claudeBaseUrl': 'https://api.anthropic.com',
+        'deepseekBaseUrl': 'https://api.deepseek.com/v1',
+        'deepseekApiKey': 'sk-1',
+        'ollamaModel': 'qwen2.5:7b',
+      });
+      expect(parsed.provider, 'deepseek');
+      expect(parsed.fallback, ['claude']);
+      expect(parsed.providers.map((p) => p.id), ['claude', 'deepseek', 'ollama']);
+      final ds = parsed.providers.firstWhere((p) => p.id == 'deepseek');
+      expect(ds.baseUrl, 'https://api.deepseek.com/v1');
+      expect(ds.apiKey, 'sk-1');
+      final ollama = parsed.providers.firstWhere((p) => p.id == 'ollama');
+      expect(ollama.model, 'qwen2.5:7b');
+    });
+
+    test('providers 键存在但为空列表时不回填默认供应商', () {
+      final parsed = AiSettings.fromJson(const {
+        'providers': <dynamic>[],
+        'provider': '',
+      });
+      expect(parsed.providers, isEmpty,
+          reason: '用户清空全部供应商后升级/保存不应被重新塞回默认三家');
+    });
+
+    test('providerById 按 id 查找供应商', () {
+      final ai = AiSettings(providers: [
+        AiProvider(id: 'p1', type: 'openai', name: 'X'),
+      ]);
+      expect(ai.providerById('p1')?.name, 'X');
+      expect(ai.providerById('missing'), isNull);
+    });
+
+    test('removeProvider 同步清理主/备/会议禁用引用（issue #25）', () {
+      final ai = AiSettings(
+        provider: 'deepseek-1',
+        fallback: ['deepseek-1', 'claude'],
+        conferenceBlocked: ['deepseek-1'],
+        providers: [
+          AiProvider(id: 'deepseek-1', type: 'deepseek', name: 'DS'),
+          AiProvider(id: 'claude', type: 'claude', name: 'Claude'),
+        ],
+      );
+      ai.removeProvider('deepseek-1');
+      expect(ai.providers.map((p) => p.id), ['claude']);
+      expect(ai.provider, isEmpty, reason: '删除主供应商后主供应商应清空');
+      expect(ai.fallback, ['claude'], reason: '备选中对被删供应商的引用应移除');
+      expect(ai.conferenceBlocked, isEmpty,
+          reason: '会议禁用列表中对被删供应商的引用应移除');
+    });
+  });
 }

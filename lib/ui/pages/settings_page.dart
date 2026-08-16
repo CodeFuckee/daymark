@@ -101,7 +101,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<String> _pickDirectory(String current) async {
-    final dir = await getDirectoryPath(initialDirectory: current.isNotEmpty ? current : null);
+    final dir = await getDirectoryPath(
+      initialDirectory: current.isNotEmpty ? current : null,
+    );
     return dir ?? current;
   }
 
@@ -140,13 +142,22 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           _section('日志', [
             _dirField('日志根目录', _draft.logRoot, (v) => _draft.logRoot = v),
-            _textField('作者名（署名 + commit 过滤，多个用逗号分隔）',
-                _draft.authorName, (v) => _draft.authorName = v),
-            _textField('并入代码提交的账户（如 agent/code01，多个用逗号分隔）',
-                _draft.extraCommitAuthors.join(','), (v) {
-              _draft.extraCommitAuthors =
-                  v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-            }),
+            _textField(
+              '作者名（署名 + commit 过滤，多个用逗号分隔）',
+              _draft.authorName,
+              (v) => _draft.authorName = v,
+            ),
+            _textField(
+              '并入代码提交的账户（如 agent/code01，多个用逗号分隔）',
+              _draft.extraCommitAuthors.join(','),
+              (v) {
+                _draft.extraCommitAuthors = v
+                    .split(',')
+                    .map((e) => e.trim())
+                    .where((e) => e.isNotEmpty)
+                    .toList();
+              },
+            ),
             // issue #20 第二轮：手动输入账户名可能与 Git 提交作者名不一致
             // （辅助账户的提交作者名常为主账户名），改为拉取真实作者勾选
             OutlinedButton.icon(
@@ -165,7 +176,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ? Icons.code
                         : Icons.account_tree,
                   ),
-                  title: Text(instance.name.isEmpty ? instance.baseUrl : instance.name),
+                  title: Text(
+                    instance.name.isEmpty ? instance.baseUrl : instance.name,
+                  ),
                   subtitle: Text(
                     '${instance.providerType} · ${instance.baseUrl}'
                     '${instance.enabled ? '' : '（已禁用）'}',
@@ -192,10 +205,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
             ],
             OutlinedButton.icon(
-              onPressed: () => _editInstance(CodeInstance(
-                id: DateTime.now().microsecondsSinceEpoch.toString(),
-                providerType: 'gitlab',
-              )),
+              onPressed: () => _editInstance(
+                CodeInstance(
+                  id: DateTime.now().microsecondsSinceEpoch.toString(),
+                  providerType: 'gitlab',
+                ),
+              ),
               icon: const Icon(Icons.add),
               label: const Text('新增代码实例'),
             ),
@@ -223,32 +238,85 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 });
               }
             }),
-            _textField(
-              '排除规则（逗号分隔）',
-              _draft.excludePatterns.join(','),
-              (v) {
-                _draft.excludePatterns =
-                    v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-                _markDirty();
-              },
-            ),
+            _textField('排除规则（逗号分隔）', _draft.excludePatterns.join(','), (v) {
+              _draft.excludePatterns = v
+                  .split(',')
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList();
+              _markDirty();
+            }),
           ]),
           _section('音频转录', [
             _dirField('音频目录', _draft.audioDir, (v) => _draft.audioDir = v),
-            _textField('转录接口 base_url（OpenAI 兼容）', _draft.transcript.baseUrl,
-                (v) => _draft.transcript.baseUrl = v),
-            _textField('API Key', _draft.transcript.apiKey,
-                (v) => _draft.transcript.apiKey = v),
-            _textField('模型', _draft.transcript.model, (v) => _draft.transcript.model = v),
+            _textField(
+              '转录接口 base_url（OpenAI 兼容）',
+              _draft.transcript.baseUrl,
+              (v) => _draft.transcript.baseUrl = v,
+            ),
+            _textField(
+              'API Key',
+              _draft.transcript.apiKey,
+              (v) => _draft.transcript.apiKey = v,
+            ),
+            _textField(
+              '模型',
+              _draft.transcript.model,
+              (v) => _draft.transcript.model = v,
+            ),
           ]),
           _section('AI', [
+            // 供应商实例列表（issue #25：参考 cc-switch——可增删改的动态列表，
+            // 不再固定三家；卡片展示名称/类型/base_url，可编辑、可删除）
+            if (_draft.ai.providers.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Text('请先添加供应商'),
+              )
+            else
+              for (final p in _draft.ai.providers)
+                Card(
+                  child: ListTile(
+                    leading: Icon(_aiProviderIcon(p.type)),
+                    title: Text(p.displayName),
+                    subtitle: Text(
+                      '${AiProviderType.displayName(p.type)} · $p.baseUrl'
+                      '${p.apiKey.isEmpty ? '' : ' · 已配置 Key'}',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: '编辑',
+                          icon: const Icon(Icons.edit_outlined),
+                          onPressed: () => _editAiProvider(p),
+                        ),
+                        IconButton(
+                          tooltip: '删除',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () {
+                            setState(() {
+                              _draft.ai.removeProvider(p.id);
+                              _dirty = true;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            // 点击「添加供应商」→ 弹出类型选择页（issue #25）
+            OutlinedButton.icon(
+              onPressed: () => _addAiProvider(),
+              icon: const Icon(Icons.add),
+              label: const Text('添加供应商'),
+            ),
             DropdownButtonFormField<String>(
-              initialValue: _draft.ai.provider.isEmpty ? null : _draft.ai.provider,
+              initialValue: _validMainProviderId,
               decoration: const InputDecoration(labelText: '主供应商'),
-              items: const [
-                DropdownMenuItem(value: 'claude', child: Text('Claude')),
-                DropdownMenuItem(value: 'deepseek', child: Text('DeepSeek')),
-                DropdownMenuItem(value: 'ollama', child: Text('Ollama（本地）')),
+              items: [
+                for (final p in _draft.ai.providers)
+                  DropdownMenuItem(value: p.id, child: Text(p.displayName)),
               ],
               onChanged: (v) {
                 setState(() {
@@ -257,38 +325,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 });
               },
             ),
-            _textField('备选供应商（逗号分隔，按顺序降级）', _draft.ai.fallback.join(','),
-                (v) {
-              _draft.ai.fallback =
-                  v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            _providerChips('备选供应商（按顺序降级）', _draft.ai.fallback, (v) {
+              _draft.ai.fallback = v;
               _markDirty();
             }),
             _textField('语气偏好', _draft.ai.tone, (v) => _draft.ai.tone = v),
-            _textField('会议内容禁用的供应商（逗号分隔，合规）',
-                _draft.ai.conferenceBlocked.join(','), (v) {
-              _draft.ai.conferenceBlocked =
-                  v.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            _providerChips('会议内容禁用的供应商（合规）', _draft.ai.conferenceBlocked, (v) {
+              _draft.ai.conferenceBlocked = v;
               _markDirty();
             }),
-            const Divider(),
-            _textField('Claude base_url', _draft.ai.claudeBaseUrl,
-                (v) => _draft.ai.claudeBaseUrl = v),
-            _textField('Claude API Key', _draft.ai.claudeApiKey,
-                (v) => _draft.ai.claudeApiKey = v),
-            _textField('Claude 模型', _draft.ai.claudeModel,
-                (v) => _draft.ai.claudeModel = v),
-            const Divider(),
-            _textField('DeepSeek base_url', _draft.ai.deepseekBaseUrl,
-                (v) => _draft.ai.deepseekBaseUrl = v),
-            _textField('DeepSeek API Key', _draft.ai.deepseekApiKey,
-                (v) => _draft.ai.deepseekApiKey = v),
-            _textField('DeepSeek 模型', _draft.ai.deepseekModel,
-                (v) => _draft.ai.deepseekModel = v),
-            const Divider(),
-            _textField('Ollama base_url', _draft.ai.ollamaBaseUrl,
-                (v) => _draft.ai.ollamaBaseUrl = v),
-            _textField('Ollama 模型', _draft.ai.ollamaModel,
-                (v) => _draft.ai.ollamaModel = v),
           ]),
           _section('快捷键', [
             Wrap(
@@ -315,7 +360,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               initialValue: _draft.hotkey.key,
               decoration: const InputDecoration(labelText: '热键'),
               items: [
-                for (final k in _keyOptions) DropdownMenuItem(value: k, child: Text(k)),
+                for (final k in _keyOptions)
+                  DropdownMenuItem(value: k, child: Text(k)),
               ],
               onChanged: (v) {
                 if (v != null) {
@@ -336,11 +382,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           ]),
           _section('通知', [
-            _textField('每日生成提醒时间（HH:mm，留空不提醒）',
-                _draft.notification.reminderTime, (v) {
-              _draft.notification.reminderTime = v;
-              _markDirty();
-            }),
+            _textField(
+              '每日生成提醒时间（HH:mm，留空不提醒）',
+              _draft.notification.reminderTime,
+              (v) {
+                _draft.notification.reminderTime = v;
+                _markDirty();
+              },
+            ),
             SwitchListTile(
               title: const Text('生成完成系统通知'),
               value: _draft.notification.completionNotification,
@@ -359,17 +408,55 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   static const _keyOptions = [
-    'KeyA', 'KeyB', 'KeyC', 'KeyD', 'KeyE', 'KeyF', 'KeyG', 'KeyH', 'KeyI',
-    'KeyJ', 'KeyK', 'KeyL', 'KeyM', 'KeyN', 'KeyO', 'KeyP', 'KeyQ', 'KeyR',
-    'KeyS', 'KeyT', 'KeyU', 'KeyV', 'KeyW', 'KeyX', 'KeyY', 'KeyZ',
-    'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-    'Space', 'Enter', 'Tab', 'Escape',
+    'KeyA',
+    'KeyB',
+    'KeyC',
+    'KeyD',
+    'KeyE',
+    'KeyF',
+    'KeyG',
+    'KeyH',
+    'KeyI',
+    'KeyJ',
+    'KeyK',
+    'KeyL',
+    'KeyM',
+    'KeyN',
+    'KeyO',
+    'KeyP',
+    'KeyQ',
+    'KeyR',
+    'KeyS',
+    'KeyT',
+    'KeyU',
+    'KeyV',
+    'KeyW',
+    'KeyX',
+    'KeyY',
+    'KeyZ',
+    'F1',
+    'F2',
+    'F3',
+    'F4',
+    'F5',
+    'F6',
+    'F7',
+    'F8',
+    'F9',
+    'F10',
+    'F11',
+    'F12',
+    'Space',
+    'Enter',
+    'Tab',
+    'Escape',
   ];
 
   /// 更新区块（issue #5）：当前版本 + 检查更新 + 状态 + 重启并更新 + 自动检查开关
   Widget _updateSection() {
-    final updateStatus =
-        ref.watch(appControllerProvider.select((s) => s.updateStatus));
+    final updateStatus = ref.watch(
+      appControllerProvider.select((s) => s.updateStatus),
+    );
     final controller = ref.read(appControllerProvider.notifier);
     final version = controller.updateConfig.appVersion;
 
@@ -390,8 +477,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           title: Text('发现新版本 ${updateStatus.version}，准备下载…'),
         );
       case UpdatePhase.downloading:
-        final percent =
-            ((updateStatus.progress ?? 0) * 100).clamp(0, 100).round();
+        final percent = ((updateStatus.progress ?? 0) * 100)
+            .clamp(0, 100)
+            .round();
         statusTile = ListTile(
           leading: const SizedBox(
             width: 18,
@@ -415,14 +503,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         statusTile = ListTile(
           leading: const Icon(Icons.system_update_alt),
           title: Text(
-            version == null
-                ? '当前构建未包含更新源（本地开发构建不参与更新）'
-                : '当前版本 v$version',
+            version == null ? '当前构建未包含更新源（本地开发构建不参与更新）' : '当前版本 v$version',
           ),
         );
     }
 
-    final busy = updateStatus.phase == UpdatePhase.checking ||
+    final busy =
+        updateStatus.phase == UpdatePhase.checking ||
         updateStatus.phase == UpdatePhase.downloading;
 
     return _section('更新', [
@@ -455,7 +542,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   /// 复制文本可直接粘贴到 Issue / 聊天窗口帮助调试与复现。
   Widget _aboutSection() {
     final controller = ref.read(appControllerProvider.notifier);
-    final info = AboutInfo.collect(appVersion: controller.updateConfig.appVersion);
+    final info = AboutInfo.collect(
+      appVersion: controller.updateConfig.appVersion,
+    );
     final messenger = ScaffoldMessenger.of(context);
     return _section('关于', [
       ListTile(
@@ -489,10 +578,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         children: [
           Text(
             title,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(color: Theme.of(context).colorScheme.primary),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+            ),
           ),
           const SizedBox(height: 8),
           ...children,
@@ -502,12 +590,19 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _textField(String label, String value, void Function(String) onChanged) {
+  Widget _textField(
+    String label,
+    String value,
+    void Function(String) onChanged,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: TextField(
         controller: TextEditingController(text: value),
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+        ),
         onChanged: (v) {
           onChanged(v);
           _dirty = true;
@@ -516,7 +611,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _dirField(String label, String value, void Function(String) onChanged) {
+  Widget _dirField(
+    String label,
+    String value,
+    void Function(String) onChanged,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
@@ -524,8 +623,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           Expanded(
             child: TextField(
               controller: TextEditingController(text: value),
-              decoration:
-                  InputDecoration(labelText: label, border: const OutlineInputBorder()),
+              decoration: InputDecoration(
+                labelText: label,
+                border: const OutlineInputBorder(),
+              ),
               onChanged: (v) {
                 onChanged(v);
                 _dirty = true;
@@ -562,8 +663,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           Expanded(
             child: TextField(
               controller: controller,
-              decoration:
-                  InputDecoration(labelText: label, border: const OutlineInputBorder()),
+              decoration: InputDecoration(
+                labelText: label,
+                border: const OutlineInputBorder(),
+              ),
               onSubmitted: (v) {
                 onAdd(v);
                 controller.clear();
@@ -581,6 +684,167 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               controller.clear();
             },
           ),
+        ],
+      ),
+    );
+  }
+
+  /// 主供应商下拉框当前值：仅当 id 仍存在于供应商列表时返回，否则为空
+  /// （防止删除供应商后下拉框出现悬空值）。
+  String? get _validMainProviderId {
+    final id = _draft.ai.provider;
+    if (id.isNotEmpty && _draft.ai.providerById(id) != null) return id;
+    return null;
+  }
+
+  IconData _aiProviderIcon(String type) => switch (type) {
+    'claude' => Icons.auto_awesome,
+    'deepseek' => Icons.smart_toy_outlined,
+    'ollama' => Icons.home_outlined,
+    _ => Icons.cloud_outlined,
+  };
+
+  /// 「添加供应商」（issue #25）：第一步弹出类型选择页（参考 cc-switch），
+  /// 第二步进入配置表单。
+  Future<void> _addAiProvider() async {
+    final type = await showDialog<String>(
+      context: context,
+      builder: (_) => const _AiProviderTypePickerDialog(),
+    );
+    if (type == null || !mounted) return;
+    await _editAiProvider(
+      AiProvider(
+        id: '$type-${DateTime.now().microsecondsSinceEpoch}',
+        type: type,
+        name: AiProviderType.displayName(type),
+        baseUrl: AiProviderType.defaultBaseUrl(type),
+        model: AiProviderType.defaultModel(type),
+      ),
+    );
+  }
+
+  /// 编辑/新增 AI 供应商配置（新增时 id 已由 [._addAiProvider] 生成）
+  Future<void> _editAiProvider(AiProvider provider) async {
+    final nameCtrl = TextEditingController(text: provider.name);
+    final baseCtrl = TextEditingController(text: provider.baseUrl);
+    final keyCtrl = TextEditingController(text: provider.apiKey);
+    final modelCtrl = TextEditingController(text: provider.model);
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    final isNew = _draft.ai.providerById(provider.id) == null;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            isNew ? '配置${AiProviderType.displayName(provider.type)}' : '编辑供应商',
+          ),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '供应商名称（如 公司 Groq）',
+                    ),
+                  ),
+                  TextField(
+                    controller: baseCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'base_url（如 https://api.groq.com/openai/v1）',
+                    ),
+                  ),
+                  if (AiProviderType.needsApiKey(provider.type))
+                    TextField(
+                      controller: keyCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'API Key'),
+                    ),
+                  TextField(
+                    controller: modelCtrl,
+                    decoration: const InputDecoration(labelText: '模型'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (baseCtrl.text.trim().isEmpty) {
+                  return;
+                }
+                final updated = AiProvider(
+                  id: provider.id,
+                  type: provider.type,
+                  name: nameCtrl.text.trim(),
+                  baseUrl: baseCtrl.text.trim(),
+                  apiKey: keyCtrl.text.trim(),
+                  model: modelCtrl.text.trim(),
+                );
+                setState(() {
+                  final idx = _draft.ai.providers.indexWhere(
+                    (c) => c.id == provider.id,
+                  );
+                  if (idx >= 0) {
+                    _draft.ai.providers[idx] = updated;
+                  } else {
+                    _draft.ai.providers.add(updated);
+                  }
+                  _dirty = true;
+                });
+                navigator.pop();
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 供应商多选 chips（备选 / 会议禁用）：选项来自已配置的供应商实例
+  Widget _providerChips(
+    String label,
+    List<String> selected,
+    void Function(List<String>) onChanged,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 4),
+          if (_draft.ai.providers.isEmpty)
+            const Text('（请先添加供应商）')
+          else
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final p in _draft.ai.providers)
+                  FilterChip(
+                    label: Text(p.displayName),
+                    selected: selected.contains(p.id),
+                    onSelected: (sel) {
+                      final next = [...selected];
+                      if (sel) {
+                        if (!next.contains(p.id)) next.add(p.id);
+                      } else {
+                        next.remove(p.id);
+                      }
+                      onChanged(next);
+                    },
+                  ),
+              ],
+            ),
         ],
       ),
     );
@@ -620,26 +884,35 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                   TextField(
                     controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: '实例名（如 公司 GitLab）'),
+                    decoration: const InputDecoration(
+                      labelText: '实例名（如 公司 GitLab）',
+                    ),
                   ),
                   TextField(
                     controller: baseCtrl,
                     decoration: const InputDecoration(
-                        labelText: 'base_url（如 https://git.example.com）'),
+                      labelText: 'base_url（如 https://git.example.com）',
+                    ),
                   ),
                   TextField(
                     controller: branchCtrl,
-                    decoration: const InputDecoration(labelText: '默认分支（留空用仓库默认）'),
+                    decoration: const InputDecoration(
+                      labelText: '默认分支（留空用仓库默认）',
+                    ),
                   ),
                   TextField(
                     controller: filterCtrl,
                     decoration: const InputDecoration(
-                        labelText: '可见性过滤（gitlab: private/internal/public；github: private/public）'),
+                      labelText:
+                          '可见性过滤（gitlab: private/internal/public；github: private/public）',
+                    ),
                   ),
                   TextField(
                     controller: tokenCtrl,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Token（存入系统密钥库）'),
+                    decoration: const InputDecoration(
+                      labelText: 'Token（存入系统密钥库）',
+                    ),
                   ),
                 ],
               ),
@@ -666,9 +939,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   visibilityFilter: filterCtrl.text.trim(),
                 );
                 final settingsService = ref.read(settingsServiceProvider);
-                await settingsService.setToken(instance.id, tokenCtrl.text.trim());
+                await settingsService.setToken(
+                  instance.id,
+                  tokenCtrl.text.trim(),
+                );
                 setState(() {
-                  final idx = _draft.codeInstances.indexWhere((c) => c.id == instance.id);
+                  final idx = _draft.codeInstances.indexWhere(
+                    (c) => c.id == instance.id,
+                  );
                   if (idx >= 0) {
                     _draft.codeInstances[idx] = updated;
                   } else {
@@ -691,6 +969,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 /// 提交作者；确定时返回并入账户列表（勾选集合 ∪ 列表外的手动输入值）。
 class _CommitAuthorsDialog extends StatefulWidget {
   final Future<List<CommitAuthor>> Function() fetch;
+
   /// 当前已配置的并入账户（手动输入值），用于初始勾选与列表外保留
   final List<String> initial;
 
@@ -704,6 +983,7 @@ class _CommitAuthorsDialogState extends State<_CommitAuthorsDialog> {
   bool _loading = true;
   String? _error;
   List<CommitAuthor> _authors = const [];
+
   /// 勾选的作者 key 集合
   final Set<String> _checked = {};
 
@@ -726,9 +1006,11 @@ class _CommitAuthorsDialogState extends State<_CommitAuthorsDialog> {
         _authors = authors;
         _checked
           ..clear()
-          ..addAll(authors
-              .where((a) => initialLower.contains(a.key.toLowerCase()))
-              .map((a) => a.key));
+          ..addAll(
+            authors
+                .where((a) => initialLower.contains(a.key.toLowerCase()))
+                .map((a) => a.key),
+          );
         _loading = false;
       });
     } catch (e) {
@@ -777,7 +1059,10 @@ class _CommitAuthorsDialogState extends State<_CommitAuthorsDialog> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
+              Icon(
+                Icons.error_outline,
+                color: Theme.of(context).colorScheme.error,
+              ),
               const SizedBox(width: 8),
               Flexible(child: Text(_error!)),
             ],
@@ -853,11 +1138,50 @@ class _CommitAuthorsDialogState extends State<_CommitAuthorsDialog> {
           child: const Text('取消'),
         ),
         if (!_loading && _error == null && _authors.isNotEmpty)
-          FilledButton(
-            onPressed: _confirm,
-            child: const Text('确定'),
-          ),
+          FilledButton(onPressed: _confirm, child: const Text('确定')),
       ],
     );
   }
+}
+
+/// 供应商类型选择页（issue #25：参考 cc-switch——点击「添加供应商」后先
+/// 弹出此页选择供应商类型，再进入配置表单）。
+class _AiProviderTypePickerDialog extends StatelessWidget {
+  const _AiProviderTypePickerDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('选择供应商类型'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final type in AiProviderType.all)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(_typeIcon(type)),
+                title: Text(AiProviderType.displayName(type)),
+                subtitle: Text(AiProviderType.description(type)),
+                onTap: () => Navigator.pop(context, type),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+      ],
+    );
+  }
+
+  IconData _typeIcon(String type) => switch (type) {
+    'claude' => Icons.auto_awesome,
+    'deepseek' => Icons.smart_toy_outlined,
+    'ollama' => Icons.home_outlined,
+    _ => Icons.cloud_outlined,
+  };
 }

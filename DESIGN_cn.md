@@ -274,7 +274,7 @@ CodeProvider
 | 代码 | GitLab/GitHub 实例列表（增删改）、token、分支、过滤 |
 | 目录监控 | 监控目录列表、排除规则 |
 | 音频 | 音频目录、转录接口 base_url/key/模型 |
-| AI | 供应商选择（Claude/DeepSeek/Ollama）+ 各自 key/base_url/模型、生成语气偏好 |
+| AI | 供应商动态列表（可增删改，参考 cc-switch：「添加供应商」弹出页面选择类型，支持 Claude / DeepSeek / Ollama / OpenAI 兼容；issue #25）+ 主供应商/备选降级/会议禁用选择、生成语气偏好 |
 | 快捷键 | 全局热键、是否开机自启 |
 | 通知 | 生成提醒时间、完成通知开关 |
 | 关于 | 应用名、版本号、构建时间、操作系统、主机名、Dart 版本、CPU 核心数、系统语言 + 一键复制诊断信息 |
@@ -317,10 +317,21 @@ abstract class LLMProvider {
   String get id; String get name;
 }
 
-class ClaudeProvider    // claude_dart sdk，model 如 claude-sonnet-5
-class DeepSeekProvider  // OpenAI 协议 + base_url，model 如 deepseek-chat
-class OllamaProvider    // http://localhost:11434，本地模型
+class ClaudeProvider             // Anthropic Messages API，model 如 claude-sonnet-5
+class DeepSeekProvider           // OpenAI 协议 + base_url，model 如 deepseek-chat
+class OllamaProvider             // http://localhost:11434，本地模型
+class OpenAICompatibleProvider   // 任意 OpenAI 兼容服务（Groq/火山引擎/通义等）
 ```
+
+- 供应商是**可增删改的实例列表**（`AiSettings.providers`，issue #25）：每个实例有
+  唯一 id、类型、名称、base_url、API Key、模型；主供应商/备选降级/会议禁用均按
+  实例 id 引用。旧版扁平字段（claudeBaseUrl 等）自动迁移为实例，序列化仍写回
+  旧字段兼容降级
+- 设置页「添加供应商」参考 cc-switch：先弹出供应商类型选择页（Claude / DeepSeek /
+  Ollama / OpenAI 兼容），再进入配置表单；默认预置三家，用户可添加任意数量
+- 统一接口，提示词模板与供应商解耦
+- 失败降级：主供应商不可用 → 自动切换备选（设置里配置优先级）
+- 敏感内容策略：会议素材默认走 Ollama/DeepSeek 可在设置中锁定（越秀会议内容属于公司数据，上传第三方 API 存在合规风险，设置页提供"会议内容禁用 Claude"选项）
 
 - 统一接口，提示词模板与供应商解耦
 - 失败降级：主供应商不可用 → 自动切换备选（设置里配置优先级）

@@ -46,12 +46,15 @@ class _FakeSettingsService extends SettingsService {
 /// 可控的 fake controller：saveSettings 行为由测试注入，build 不触 FRB/IO
 class _FakeController extends AppController {
   _FakeController({this.onSave, this.onFetchAuthors, AppSettings? initial})
-      : _initial = initial ?? AppSettings(authorName: '测试');
+    : _initial = initial ?? AppSettings(authorName: '测试');
 
   Future<void> Function(AppSettings next)? onSave;
+
   /// 拉取提交作者行为（issue #20 第二轮）：未注入时返回空列表。
   /// 收到设置页传入的实例列表（issue #20 第三轮：应为草稿实例）
-  Future<List<CommitAuthor>> Function(List<CodeInstance>? instances)? onFetchAuthors;
+  Future<List<CommitAuthor>> Function(List<CodeInstance>? instances)?
+  onFetchAuthors;
+
   /// 记录最近一次收到的实例列表（草稿感知断言用）
   List<CodeInstance>? lastFetchInstances;
   final AppSettings _initial;
@@ -84,7 +87,9 @@ class _FakeController extends AppController {
   }
 
   @override
-  Future<List<CommitAuthor>> fetchCommitAuthors({List<CodeInstance>? instances}) async {
+  Future<List<CommitAuthor>> fetchCommitAuthors({
+    List<CodeInstance>? instances,
+  }) async {
     lastFetchInstances = instances;
     if (onFetchAuthors != null) return onFetchAuthors!(instances);
     return const [];
@@ -155,7 +160,9 @@ void main() {
       await tester.pumpWidget(_wrap(controller));
 
       final field = find.widgetWithText(
-          TextField, '并入代码提交的账户（如 agent/code01，多个用逗号分隔）');
+        TextField,
+        '并入代码提交的账户（如 agent/code01，多个用逗号分隔）',
+      );
       expect(field, findsOneWidget, reason: '设置页日志区块应包含该设置项');
 
       await tester.enterText(field, 'agent, code01, ');
@@ -163,8 +170,10 @@ void main() {
       await tester.tap(find.text('保存设置'));
       await tester.pumpAndSettle();
 
-      expect(saved?.extraCommitAuthors, ['agent', 'code01'],
-          reason: '空白段应被清理，仅保留有效账户');
+      expect(saved?.extraCommitAuthors, [
+        'agent',
+        'code01',
+      ], reason: '空白段应被清理，仅保留有效账户');
     });
 
     testWidgets('清空输入保存：extraCommitAuthors 为空列表', (tester) async {
@@ -179,9 +188,14 @@ void main() {
       await tester.pumpWidget(_wrap(controller));
 
       final field = find.widgetWithText(
-          TextField, '并入代码提交的账户（如 agent/code01，多个用逗号分隔）');
-      expect(tester.widget<TextField>(field).controller!.text, 'agent',
-          reason: '已配置的额外账户应回显');
+        TextField,
+        '并入代码提交的账户（如 agent/code01，多个用逗号分隔）',
+      );
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        'agent',
+        reason: '已配置的额外账户应回显',
+      );
 
       await tester.enterText(field, '');
       await tester.pump();
@@ -213,8 +227,11 @@ void main() {
       await tester.tap(find.text('从代码仓库拉取提交作者'));
       await tester.pumpAndSettle();
 
-      expect(find.text('agent <agent@example.com>'), findsOneWidget,
-          reason: '对话框应展示拉取到的作者列表');
+      expect(
+        find.text('agent <agent@example.com>'),
+        findsOneWidget,
+        reason: '对话框应展示拉取到的作者列表',
+      );
 
       // 勾选 agent，不勾选 chenkaidi
       await tester.tap(find.text('agent <agent@example.com>'));
@@ -225,10 +242,16 @@ void main() {
       await tester.tap(find.text('保存设置'));
       await tester.pumpAndSettle();
 
-      expect(saved?.extraCommitAuthors, containsAll(['manual_name', 'agent']),
-          reason: '手动输入且不在拉取列表中的值保留，勾选值并入');
-      expect(saved?.extraCommitAuthors, isNot(contains('chenkaidi')),
-          reason: '未勾选的作者不并入');
+      expect(
+        saved?.extraCommitAuthors,
+        containsAll(['manual_name', 'agent']),
+        reason: '手动输入且不在拉取列表中的值保留，勾选值并入',
+      );
+      expect(
+        saved?.extraCommitAuthors,
+        isNot(contains('chenkaidi')),
+        reason: '未勾选的作者不并入',
+      );
     });
 
     testWidgets('取消勾选已并入账户：保存后移除（勾选状态为准）', (tester) async {
@@ -278,8 +301,11 @@ void main() {
       await tester.tap(find.text('重试'));
       await tester.pumpAndSettle();
 
-      expect(find.text('agent <agent@example.com>'), findsOneWidget,
-          reason: '重试成功应展示作者列表');
+      expect(
+        find.text('agent <agent@example.com>'),
+        findsOneWidget,
+        reason: '重试成功应展示作者列表',
+      );
       // 关闭对话框（取消不影响草稿）
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
@@ -300,8 +326,7 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    testWidgets('新增实例未点「保存设置」：拉取作者也传入草稿实例（issue #20 第三轮）',
-        (tester) async {
+    testWidgets('新增实例未点「保存设置」：拉取作者也传入草稿实例（issue #20 第三轮）', (tester) async {
       List<CodeInstance>? received;
       final controller = _FakeController(
         onFetchAuthors: (instances) async {
@@ -332,10 +357,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(received, isNotNull, reason: '点击拉取按钮必须调用 fetchCommitAuthors');
-      expect(received!.single.baseUrl, 'https://home.chenkaidi.top:509',
-          reason: '传入的应为草稿实例（含未保存的新增实例）');
-      expect(controller.settingsService.settings.codeInstances, isEmpty,
-          reason: '未点「保存设置」，持久化设置不应变化');
+      expect(
+        received!.single.baseUrl,
+        'https://home.chenkaidi.top:509',
+        reason: '传入的应为草稿实例（含未保存的新增实例）',
+      );
+      expect(
+        controller.settingsService.settings.codeInstances,
+        isEmpty,
+        reason: '未点「保存设置」，持久化设置不应变化',
+      );
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
     });
@@ -435,15 +466,24 @@ void main() {
 
       expect(find.text('关于'), findsOneWidget);
       expect(find.text('Daymark'), findsOneWidget, reason: '应显示应用名');
-      expect(find.text('版本号: 开发构建（未注入版本号）'), findsOneWidget,
-          reason: '测试环境未注入版本号应显示占位');
-      expect(find.text('构建时间: 开发构建（未注入构建时间）'), findsOneWidget,
-          reason: '测试环境未注入构建时间应显示占位');
+      expect(
+        find.text('版本号: 开发构建（未注入版本号）'),
+        findsOneWidget,
+        reason: '测试环境未注入版本号应显示占位',
+      );
+      expect(
+        find.text('构建时间: 开发构建（未注入构建时间）'),
+        findsOneWidget,
+        reason: '测试环境未注入构建时间应显示占位',
+      );
       // 测试运行在真实宿主（Linux）上，操作系统条目应显示非占位值
       final osText = tester
           .widgetList<Text>(find.byType(Text))
           .map((t) => t.data)
-          .firstWhere((d) => d?.startsWith('操作系统:') == true, orElse: () => null);
+          .firstWhere(
+            (d) => d?.startsWith('操作系统:') == true,
+            orElse: () => null,
+          );
       expect(osText, isNotNull, reason: '应显示操作系统条目');
       expect(osText, contains('linux'), reason: '测试宿主为 Linux');
     });
@@ -464,8 +504,12 @@ void main() {
           return null;
         },
       );
-      addTearDown(() => tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null));
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
 
       tester.view.physicalSize = const Size(800, 6000);
       tester.view.devicePixelRatio = 1.0;
@@ -497,8 +541,12 @@ void main() {
           return null;
         },
       );
-      addTearDown(() => tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null));
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
 
       tester.view.physicalSize = const Size(800, 6000);
       tester.view.devicePixelRatio = 1.0;
@@ -511,9 +559,171 @@ void main() {
       // 与 AboutInfo 条目一一对应：每个标签都出现在复制文本中
       final info = AboutInfo.collect(appVersion: null);
       for (final entry in info.entries) {
-        expect(copied, contains('${entry.key}: '),
-            reason: '复制文本应包含「${entry.key}」标签');
+        expect(
+          copied,
+          contains('${entry.key}: '),
+          reason: '复制文本应包含「${entry.key}」标签',
+        );
       }
+    });
+  });
+
+  group('AI 供应商（issue #25）：动态列表 + 添加供应商选择页', () {
+    testWidgets('添加供应商按钮弹出类型选择页（参考 cc-switch）', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      // 默认显示三家预置供应商卡片
+      expect(find.text('Claude'), findsWidgets);
+      expect(find.text('DeepSeek'), findsWidgets);
+      expect(find.text('Ollama（本地）'), findsWidgets);
+
+      await tester.tap(find.text('添加供应商'));
+      await tester.pumpAndSettle();
+
+      // 弹出类型选择页：除三家外还支持 OpenAI 兼容（可添加任意供应商）
+      expect(find.text('选择供应商类型'), findsOneWidget);
+      expect(find.text('Claude'), findsWidgets);
+      expect(find.text('DeepSeek'), findsWidgets);
+      expect(find.text('Ollama（本地）'), findsWidgets);
+      expect(find.text('OpenAI 兼容'), findsOneWidget);
+    });
+
+    testWidgets('选择类型并填写配置后新增供应商卡片', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(onSave: (next) async => saved = next);
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await tester.tap(find.text('添加供应商'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OpenAI 兼容'));
+      await tester.pumpAndSettle();
+
+      // 配置表单（对话框内的字段；「API Key」「模型」与音频转录区同名，
+      // 需限定在 AlertDialog 内避免多匹配）
+      final dialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.widgetWithText(TextField, '供应商名称（如 公司 Groq）'),
+        'Groq',
+      );
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, 'API Key'),
+        ),
+        'sk-groq',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, '模型'),
+        ),
+        'llama-3.3-70b-versatile',
+      );
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+
+      // 列表中新增 Groq 卡片
+      expect(
+        find.ancestor(of: find.text('Groq'), matching: find.byType(Card)),
+        findsOneWidget,
+        reason: '新增供应商应以卡片形式出现在列表中',
+      );
+
+      // 保存设置后持久化到草稿结构
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      expect(saved?.ai.providers.any((p) => p.name == 'Groq'), isTrue);
+      expect(saved?.ai.providers.any((p) => p.type == 'openai'), isTrue);
+    });
+
+    testWidgets('删除供应商卡片并清理主/备引用', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(
+        onSave: (next) async => saved = next,
+        initial: AppSettings(
+          authorName: '测试',
+          ai: AiSettings(
+            provider: 'claude',
+            fallback: ['deepseek'],
+            providers: [
+              AiProvider(
+                id: 'claude',
+                type: 'claude',
+                name: 'Claude',
+                baseUrl: 'https://api.anthropic.com',
+                model: 'claude-sonnet-5',
+              ),
+              AiProvider(
+                id: 'deepseek',
+                type: 'deepseek',
+                name: 'DeepSeek',
+                baseUrl: 'https://api.deepseek.com',
+                model: 'deepseek-chat',
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      // 删除备选供应商 DeepSeek 卡片
+      final deepseekCard = find.ancestor(
+        of: find.text('DeepSeek'),
+        matching: find.byType(Card),
+      );
+      await tester.tap(
+        find.descendant(
+          of: deepseekCard,
+          matching: find.byIcon(Icons.delete_outline),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('DeepSeek'), findsNothing, reason: '卡片应从列表移除');
+
+      // 保存后：主供应商保持 claude，备选中的 deepseek 引用被清理
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      expect(saved?.ai.provider, 'claude');
+      expect(saved?.ai.fallback, isEmpty, reason: '备选中对被删供应商的引用应移除');
+      expect(saved?.ai.providers.map((p) => p.id), ['claude']);
+    });
+
+    testWidgets('空供应商列表：主供应商下拉禁用且提示先添加', (tester) async {
+      final controller = _FakeController(
+        initial: AppSettings(
+          authorName: '测试',
+          ai: AiSettings(providers: const []),
+        ),
+      );
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      expect(find.text('请先添加供应商'), findsOneWidget);
+      expect(find.text('添加供应商'), findsOneWidget);
     });
   });
 }
