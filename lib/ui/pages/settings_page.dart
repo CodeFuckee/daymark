@@ -798,6 +798,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   } else {
                     _draft.ai.providers.add(updated);
                   }
+                  // issue #26：主供应商未配置时自动选中当前保存的供应商——
+                  // 否则「添加供应商」后未手动选主供应商，点生成日报仍报
+                  // 「没有可用的 AI 供应商（检查设置 → AI）」
+                  if (_draft.ai.provider.isEmpty) {
+                    _draft.ai.provider = provider.id;
+                  }
                   _dirty = true;
                 });
                 navigator.pop();

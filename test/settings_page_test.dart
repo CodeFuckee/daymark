@@ -652,6 +652,68 @@ void main() {
       expect(saved?.ai.providers.any((p) => p.type == 'openai'), isTrue);
     });
 
+    testWidgets('新增供应商且主供应商为空时自动选中该供应商（issue #26）', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(onSave: (next) async => saved = next);
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      // 默认预置三家实例，但主供应商未配置（_FakeController 初始为
+      // AppSettings(authorName: '测试')，ai.provider 为空）
+      // 走「添加供应商」流程新增一个 OpenAI 兼容供应商
+      await tester.tap(find.text('添加供应商'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OpenAI 兼容'));
+      await tester.pumpAndSettle();
+
+      final dialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.widgetWithText(TextField, '供应商名称（如 公司 Groq）'),
+        'Groq',
+      );
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, 'API Key'),
+        ),
+        'sk-groq',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, '模型'),
+        ),
+        'llama-3.3-70b-versatile',
+      );
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+
+      // 保存设置后：主供应商应自动指向新添加的供应商，否则生成日报
+      // 会误报「没有可用的 AI 供应商」（issue #26）
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      expect(
+        saved?.ai.provider,
+        isNotEmpty,
+        reason: '新增供应商后主供应商应自动选中（issue #26）',
+      );
+      expect(
+        saved?.ai.providerById(saved!.ai.provider)?.name,
+        'Groq',
+        reason: '主供应商应指向刚新增的供应商实例',
+      );
+    });
+
     testWidgets('删除供应商卡片并清理主/备引用', (tester) async {
       AppSettings? saved;
       final controller = _FakeController(

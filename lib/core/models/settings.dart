@@ -288,6 +288,18 @@ class AiProvider {
   String get displayName =>
       name.isEmpty ? AiProviderType.displayName(type) : name;
 
+  /// 实例是否已完整配置可用（issue #26）：base_url 非空；非 Ollama 类型还
+  /// 需 API Key 非空。Ollama 无 key，保持默认地址/模型视为未主动配置——
+  /// 与默认预置的 claude/deepseek（空 key）一样不参与「主供应商未配置」
+  /// 时的回退，避免全新安装把占位实例当可用供应商调用。
+  bool get isConfigured {
+    if (baseUrl.trim().isEmpty) return false;
+    if (type != AiProviderType.ollama) return apiKey.trim().isNotEmpty;
+    return baseUrl.trim() !=
+            AiProviderType.defaultBaseUrl(AiProviderType.ollama) ||
+        model != AiProviderType.defaultModel(AiProviderType.ollama);
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'type': type,

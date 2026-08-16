@@ -63,6 +63,22 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Fixed
 
+- After "Add provider" without manually selecting a main provider, generating a daily report still reported "No available AI provider"
+  (issue #26): after issue #25 turned AI providers into a dynamic instance list, main/fallback providers are referenced by id independently —
+  when a user added and configured a provider instance via "Add provider" but did not explicitly select it in the "Main provider"
+  dropdown below, `AiSettings.provider` stayed empty and the report engine picked providers by "main + fallback" only, yielding an empty
+  list and wrongly reporting "No available AI provider (check Settings → AI)". Fixed on two levels: ① engine-side
+  `LLMProviderFactory.order` now falls back to all "configured" instances (in list order) when both main and fallback are empty —
+  new `AiProvider.isConfigured` check (non-empty base_url; non-Ollama types also need a non-empty API key; an Ollama instance keeping
+  its default base URL/model counts as not actively configured, so a fresh install does not treat placeholder instances as usable
+  providers and keeps the "No available AI provider" guidance); ② the settings page auto-selects the provider being saved as main
+  when main is empty, so "Add provider → Save settings → Generate daily report" works in one step
+- New tests (7): `report_engine_test.dart` 4 (fallback to configured instances when main is empty, default placeholder instances
+  excluded, missing base_url/key not usable, generation actually attempts the configured instance instead of misreporting) +
+  `settings_page_test.dart` 1 (main provider auto-selected after adding a provider) + `settings_model_test.dart` 1
+  (`AiProvider.isConfigured` boundary cases: empty key / empty base_url / default Ollama / customized Ollama)
+
+
 - Added "Accounts merged into code commits" setting so commits by auxiliary accounts like agent/code01 are no longer missing
   (issue #20): when refreshing materials, GitLab/GitHub commit fetching originally filtered by author name only —
   on days when the primary author had commits, commits completed by auxiliary accounts (agent/code01) were silently dropped (only when the primary author had no commits at all was everything let through, the issue #9 fallback), so refreshing materials missed the work done by those accounts. Fix: the settings page "Log" section gained an "Accounts merged into code commits (e.g. agent/code01, comma-separated)" input, saved to the `extraCommitAuthors` config (old configs without this key fall back to an empty list — existing behavior unchanged); collection merges the primary author with the extra accounts into the filter string (new `mergeAuthorFilter` utility, reusing issue #9's multi-value matching), supported by both GitLab and GitHub providers; when neither the primary author nor the extra accounts match, everything is still let through (issue #9 semantics unchanged)

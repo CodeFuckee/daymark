@@ -338,11 +338,22 @@ class LLMProviderFactory {
     }
   }
 
-  /// 主备顺序（主供应商在前，备选按配置顺序）
-  static List<String> order(AiSettings ai) => [
-    if (ai.provider.isNotEmpty) ai.provider,
-    ...ai.fallback.where((p) => p != ai.provider),
-  ];
+  /// 主备顺序（主供应商在前，备选按配置顺序）。
+  ///
+  /// 主供应商与备选均为空（issue #26：用户仅通过「添加供应商」配置了实例，
+  /// 未单独选择主供应商）时，回退到全部「已配置」的实例（按列表顺序）——
+  /// 否则生成日报会误报「没有可用的 AI 供应商（检查设置 → AI）」。
+  static List<String> order(AiSettings ai) {
+    final ordered = <String>[
+      if (ai.provider.isNotEmpty) ai.provider,
+      ...ai.fallback.where((p) => p != ai.provider),
+    ];
+    if (ordered.isNotEmpty) return ordered;
+    return [
+      for (final p in ai.providers)
+        if (p.isConfigured) p.id,
+    ];
+  }
 
   /// 该供应商是否可用于会议素材（合规：设置可禁用第三方）
   static bool allowsMeeting(AiSettings ai, String providerId) =>

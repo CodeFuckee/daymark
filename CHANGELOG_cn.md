@@ -87,6 +87,25 @@
 
 ### 修复
 
+- 「添加供应商」后未手动选择主供应商，生成日报仍报「没有可用的 AI 供应商」
+  （issue #26）：issue #25 把 AI 供应商改为动态实例列表后，主/备供应商按 id
+  独立引用——用户通过「添加供应商」新增并配置了供应商实例、但未在下方
+  「主供应商」下拉中显式选择时，`AiSettings.provider` 仍为空，报告引擎按
+  「主供应商 + 备选」选取供应商得到空列表，误报「没有可用的 AI 供应商
+  （检查设置 → AI）」。修复两层：① 引擎侧 `LLMProviderFactory.order` 在
+  主/备均为空时回退到全部「已配置」实例（按列表顺序）——新增
+  `AiProvider.isConfigured` 判定（base_url 非空；非 Ollama 类型还需 API Key
+  非空；Ollama 保持默认地址/模型视为未主动配置，避免全新安装把占位实例当
+  可用供应商调用，保留「没有可用的 AI 供应商」引导）；② 设置页编辑供应商
+  保存时主供应商为空则自动选中当前保存的供应商，「添加供应商 → 保存设置 →
+  生成日报」一步直达
+- 新增测试 7 个：`report_engine_test.dart` 4 个（主供应商为空回退已配置实例、
+  默认预置实例不参与回退、缺 base_url/key 不算可用、生成日报实际尝试调用
+  已配置实例而非误报）+ `settings_page_test.dart` 1 个（新增供应商后主供应商
+  自动选中）+ `settings_model_test.dart` 1 个（`AiProvider.isConfigured` 判定
+  边界：空 key/空地址/默认 ollama/自定义 ollama）
+
+
 - 设置新增「并入代码提交的账户」，agent/code01 等辅助账户的提交不再缺失
   （issue #20）：刷新素材拉取 GitLab/GitHub 提交时原来只按作者名过滤——
   当日主作者有提交时，agent/code01 等辅助账户完成的提交会被静默丢弃（只有

@@ -159,6 +159,54 @@ void aiProviderGroup() {
           reason: '用户清空全部供应商后升级/保存不应被重新塞回默认三家');
     });
 
+    test('isConfigured 判定实例是否已配置可用（issue #26）', () {
+      // 非 Ollama：需 base_url + API Key 非空
+      expect(
+        AiProvider(
+          id: 'ds-1',
+          type: 'deepseek',
+          baseUrl: 'https://api.deepseek.com',
+          apiKey: 'sk-1',
+          model: 'deepseek-chat',
+        ).isConfigured,
+        isTrue,
+      );
+      // 空 key 不算已配置（默认预置的 claude/deepseek）
+      expect(
+        AiProvider(
+          id: 'claude',
+          type: 'claude',
+          baseUrl: 'https://api.anthropic.com',
+          model: 'claude-sonnet-5',
+        ).isConfigured,
+        isFalse,
+      );
+      // 空 base_url 不算已配置
+      expect(
+        AiProvider(id: 'x', type: 'openai', apiKey: 'sk-1').isConfigured,
+        isFalse,
+      );
+      // Ollama：保持默认地址/模型视为未主动配置；改过地址/模型算已配置
+      expect(
+        AiProvider(
+          id: 'ollama',
+          type: 'ollama',
+          baseUrl: AiProviderType.defaultBaseUrl('ollama'),
+          model: AiProviderType.defaultModel('ollama'),
+        ).isConfigured,
+        isFalse,
+      );
+      expect(
+        AiProvider(
+          id: 'ollama',
+          type: 'ollama',
+          baseUrl: 'http://10.0.0.8:11434',
+          model: 'qwen3',
+        ).isConfigured,
+        isTrue,
+      );
+    });
+
     test('providerById 按 id 查找供应商', () {
       final ai = AiSettings(providers: [
         AiProvider(id: 'p1', type: 'openai', name: 'X'),
