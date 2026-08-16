@@ -38,6 +38,19 @@
 
 ### 新增
 
+- 工作日报编辑器改为所见即所得模式（issue #30 第三轮人工确认方案 A）：引入
+  `flutter_smooth_markdown` 0.8.1（替换并移除 `flutter_markdown`），默认
+  formatted 模式——Markdown 渲染块点击即可编辑（类 Typora），编辑与渲染一体、
+  单视图，天然不存在「左右分栏同步滚动」问题，彻底消除前两轮人工反馈的「右侧
+  闪烁 / 滚到底部无法上滚」；工具栏内置 Formatted / Source / Preview / Split
+  模式切换按钮，可一键切到 source 模式查看原始 Markdown 源码。重写编辑器测试
+  `editor_page_formatted_test.dart` 9 个（formatted 渲染、编辑回写源码 + 未
+  保存提示、渲染块点击激活编辑、source 切换显示源码、连续切换不丢内容、
+  空/短/特殊 Markdown/长内容边界），更新 `editor_page_finalized_preview_test.dart`
+  （定稿后「查看」渲染定稿内容回归）。新增本地 ohos Flutter SDK 兼容补丁脚本
+  `scripts/patch_ohos_pub_cache.sh`（开发机 OpenHarmony fork Flutter 编译
+  flutter_math_fork 等依赖时需执行；CI 使用标准 Flutter stable 无需执行）
+
 - 编辑器左右分栏同步滚动（issue #30）：工作日报查看页面中，左侧等宽源码
   与右侧 Markdown 预览任一侧滚动时另一侧同步跟随——两侧内容高度不同、
   像素同步会错位，故按「滚动比例」跳到相同相对位置；任一侧内容不足一屏

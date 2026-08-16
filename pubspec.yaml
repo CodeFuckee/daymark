@@ -35,7 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^3.3.2
-  flutter_markdown: ^0.7.7+1
+  flutter_smooth_markdown: ^0.8.1
   tray_manager: ^0.5.3
   flutter_local_notifications: ^20.1.0
   flutter_secure_storage: ^10.3.1

@@ -23,6 +23,25 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Added
 
+- Daily-report editor switched to WYSIWYG mode (issue #30, round 3, plan A
+  confirmed by the user): introduced `flutter_smooth_markdown` 0.8.1
+  (replacing and removing `flutter_markdown`), default formatted mode —
+  rendered Markdown blocks are click-to-edit (Typora-like), editing and
+  rendering unified in a single view with no "split-pane synchronized
+  scrolling" problem at all, eliminating the "right pane flicker / cannot
+  scroll up at the bottom" reported in the first two rounds; the toolbar has
+  built-in Formatted / Source / Preview / Split mode buttons for one-key
+  switching to source mode to view raw Markdown. Rewrote the editor tests in
+  `editor_page_formatted_test.dart` (9 tests: formatted rendering, editing
+  writes back to source + unsaved-changes banner, rendered block tap-to-edit,
+  source toggle shows raw Markdown, repeated toggling keeps content, empty /
+  short / special Markdown / long content edge cases), and updated
+  `editor_page_finalized_preview_test.dart` (finalized-report "view" path
+  renders content regression). Added a local ohos Flutter SDK compatibility
+  patch script `scripts/patch_ohos_pub_cache.sh` (only needed on dev machines
+  using the OpenHarmony Flutter fork to compile flutter_math_fork etc.; CI uses
+  standard Flutter stable and does not need it).
+
 - Editor split view synchronized scrolling (issue #30): in the daily report
   viewing page, the left monospace source pane and the right Markdown preview
   pane stay in sync when either side scrolls — the follower jumps to the same

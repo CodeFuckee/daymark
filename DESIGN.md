@@ -50,7 +50,7 @@ Productize into a three-platform desktop client:
 | Document extraction | Rust parsers (pdf-extract + quick-xml + zip) |
 | Audio transcription | OpenAI-compatible transcription endpoint (Groq/Volcano/Qwen etc., base_url configurable) |
 | LLM | Native adapters for Claude + DeepSeek + Ollama |
-| Editor | Simple built-in (text + highlight + preview split) + external system editor |
+| Editor | Built-in WYSIWYG Markdown editor (flutter_smooth_markdown, formatted blocks click-to-edit, Typora-like) + external system editor |
 | Quick-note trigger | Global hotkey popup (Rust `global-hotkey` crate) |
 
 **Core architectural decision**: since document parsing is done in Rust anyway, put file watching (`notify`) and the global hotkey (`global-hotkey`) into the Rust core as well, exposed to Dart uniformly via `flutter_rust_bridge` — avoiding writing separate Swift/Kotlin/C++ platform channels for each of the three platforms.
@@ -85,7 +85,7 @@ Productize into a three-platform desktop client:
 │        (notify)  global hotkey (global-hotkey)              │
 │  Dart: network (http/oauth)  key storage                    │
 │        (flutter_secure_storage)  Markdown rendering         │
-│        (flutter_markdown)  local file IO                    │
+│        (flutter_smooth_markdown)  local file IO                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,7 +103,7 @@ Single process: the Flutter main process loads the Rust core as a dynamic librar
 | Rust global hotkey | `global-hotkey` | registers system-level shortcuts on three platforms |
 | State management | Riverpod | personal project, lightweight and testable |
 | Key storage | flutter_secure_storage | Keychain / libsecret / Credential Manager |
-| Markdown rendering | flutter_markdown | preview pane |
+| Markdown render/edit | flutter_smooth_markdown | WYSIWYG editor + render |
 | Tray | tray_manager | resident + tray menu |
 | Notifications | flutter_local_notifications | generation-complete reminders |
 | Network | dio + OAuth2 packages | GitLab/GitHub API |
@@ -267,9 +267,18 @@ Generation is **re-entrant**: the draft can be regenerated after materials chang
 
 ### 5.7 Editor
 
-- Simple built-in: `TextField` (monospace font) + flutter_markdown preview split (left/right or tabs); the two panes scroll in sync by relative-position ratio, keeping source and preview aligned (issue #30)
-- Line numbers, Markdown syntax highlighting (simple regex highlighting; no heavy editor)
-- "Open with system editor" button → `OpenFile` locates the file and opens it in the system default app
+- Built-in WYSIWYG Markdown editor: `flutter_smooth_markdown` 0.8.1, default
+  formatted mode (rendered blocks click-to-edit, Typora-like) — editing and
+  rendering unified in a single view, so there is inherently no
+  "split-pane synchronized scrolling" problem (issue #30, plan A confirmed by
+  the user; replaces the previous `TextField` + flutter_markdown preview split,
+  and eliminates the flicker / bottom-scroll deadlock reported in the first two
+  rounds); the toolbar has built-in Formatted / Source / Preview / Split mode
+  buttons for one-key switching to source mode to view raw Markdown
+- Built-in formatting commands in the toolbar (headings/lists/quotes/code
+  blocks/tables, etc.)
+- "Open with system editor" button → writes a draft file + opens it in the
+  system default app
 - Finalize button → write to disk + archive (from "draft" to "finalized")
 
 ### 5.8 Settings Module
@@ -394,7 +403,7 @@ Input: the period's daily-report points + the period's inbox entries. Output: a 
 - Rust core v0: `global-hotkey` + `notify` integration
 - Quick notes: hotkey popup + inbox persistence
 - GitLab provider + daily report generation pipeline (AI starts with DeepSeek; Claude configurable later)
-- Simple editor (text + preview split) + finalize-to-disk
+- WYSIWYG Markdown editor + finalize-to-disk
 - **Acceptance**: user records a note via hotkey on a Mac → generates today's daily report → finalizes
 
 ### M2 — Data source expansion (1–2 weeks)

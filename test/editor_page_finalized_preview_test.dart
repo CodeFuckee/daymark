@@ -1,19 +1,15 @@
 /// 编辑器「查看已定稿日报」预览测试（issue #28：日报定稿后，顶部点击
 /// 「查看」，右侧预览页面空白；定稿之前预览正常）。
 ///
-/// 根因：EditorPage 以无 initialContent 打开（定稿后「查看」路径）时，
-/// initState 里 _loadExisting() 异步读取已定稿日报并赋值
-/// `_controller.text = content`，但**没有 setState**。左侧 TextField 内部
-/// 监听 controller 会自动刷新，右侧 Markdown 是普通 widget，构建时取
-/// `_controller.text` 后不会因 controller 变化重建 → 预览停留在初始空白。
-/// 定稿前「生成今日日报」路径 _openEditor(draft) 直接传入 initialContent，
-/// Markdown 首次构建即有内容，所以预览正常。
+/// issue #30 方案 A 后：编辑器改为 flutter_smooth_markdown 所见即所得
+/// （formatted 模式）单视图，源码与渲染由同一个 MarkdownEditorController
+/// 持有——异步加载定稿内容后 controller 变化必须驱动渲染刷新。
 ///
 /// 契约（修复后）：
-/// 1. 定稿后点「查看」（无 initialContent）→ 异步加载完成后，右侧
-///    Markdown 预览必须渲染出定稿内容（修复前 data 为空）；
-/// 2. 左侧编辑器文本同步显示定稿内容；
-/// 3. 带 initialContent 打开（生成初稿路径）→ 预览内容与 initialContent
+/// 1. 定稿后点「查看」（无 initialContent）→ 异步加载完成后，编辑器
+///    formatted 视图必须渲染出定稿内容（修复前 data 为空 → 空白）；
+/// 2. 编辑器 controller 源码同步显示定稿内容；
+/// 3. 带 initialContent 打开（生成初稿路径）→ 渲染内容与 initialContent
 ///    一致（回归保障，该路径修复前后均正常）。
 library;
 
@@ -32,8 +28,8 @@ import 'package:daymark/core/util/markdown_util.dart';
 import 'package:daymark/ui/app_controller.dart';
 import 'package:daymark/ui/pages/editor_page.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_smooth_markdown/flutter_smooth_markdown_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 可控的 fake controller：把日志根目录指向临时目录，
@@ -92,6 +88,12 @@ Future<void> _pumpEditor(
   await tester.pump();
 }
 
+MarkdownEditorController _editorController(WidgetTester tester) => tester
+    .widget<SmoothMarkdownEditor>(
+      find.byKey(const ValueKey('editor-smooth-markdown')),
+    )
+    .controller!;
+
 void main() {
   late Directory tmp;
   late String logRoot;
@@ -111,21 +113,30 @@ void main() {
     tmp.deleteSync(recursive: true);
   });
 
-  testWidgets('定稿后点「查看」（无 initialContent）：右侧预览渲染定稿内容', (tester) async {
+  testWidgets('定稿后点「查看」（无 initialContent）：formatted 视图渲染定稿内容', (tester) async {
     await _pumpEditor(tester, logRoot: logRoot, date: date);
 
-    // 契约 1：右侧 Markdown 预览必须有内容（修复前 data 为空 → 空白）
-    final markdown = tester.widget<Markdown>(find.byType(Markdown));
-    expect(markdown.data, contains('完成需求 A'),
-        reason: '定稿后查看，右侧预览必须渲染已定稿日报内容');
+    // 契约 1：formatted 渲染块必须有定稿内容（修复前 data 为空 → 空白）
+    expect(
+      find.textContaining('完成需求 A', findRichText: true),
+      findsWidgets,
+      reason: '定稿后查看，编辑器必须渲染已定稿日报内容',
+    );
 
-    // 契约 2：左侧编辑器同步显示定稿内容
-    final textField = tester.widget<TextField>(find.byType(TextField));
-    expect(textField.controller!.text, contains('修复缺陷 B'),
-        reason: '左侧编辑器应显示定稿日报内容');
+    // 契约 2：编辑器 controller 源码同步显示定稿内容
+    expect(
+      _editorController(tester).text,
+      contains('修复缺陷 B'),
+      reason: '编辑器源码应显示定稿日报内容',
+    );
+    expect(
+      _editorController(tester).isDirty,
+      isFalse,
+      reason: '加载定稿内容不应误报未保存修改',
+    );
   });
 
-  testWidgets('生成初稿路径（带 initialContent）：预览直接渲染传入内容', (tester) async {
+  testWidgets('生成初稿路径（带 initialContent）：渲染内容与传入一致', (tester) async {
     const draft = '# 初稿标题\n\n- 草稿要点一';
     await _pumpEditor(
       tester,
@@ -135,10 +146,11 @@ void main() {
     );
 
     // 契约 3：该路径（定稿前正常）必须保持正常
-    final markdown = tester.widget<Markdown>(find.byType(Markdown));
-    expect(markdown.data, contains('草稿要点一'),
-        reason: '带 initialContent 打开时预览应立即渲染内容');
-    final textField = tester.widget<TextField>(find.byType(TextField));
-    expect(textField.controller!.text, contains('初稿标题'));
+    expect(
+      find.textContaining('草稿要点一', findRichText: true),
+      findsWidgets,
+      reason: '带 initialContent 打开时编辑器应立即渲染内容',
+    );
+    expect(_editorController(tester).text, contains('初稿标题'));
   });
 }

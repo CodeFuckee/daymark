@@ -1,14 +1,18 @@
-/// 简易编辑器（DESIGN.md §5.7）：等宽 TextField + flutter_markdown 预览分栏。
+/// 简易编辑器（DESIGN.md §5.7）：flutter_smooth_markdown 所见即所得编辑器。
 ///
-/// - 左右分栏（可拖动分割线）；定稿按钮落盘并归档
-/// - 「用系统编辑器打开」外调默认应用
+/// - 方案 A（issue #30 第三轮人工确认）：引入 flutter_smooth_markdown 0.8.1，
+///   默认 formatted 所见即所得模式（渲染块点击即可编辑，类 Typora）——
+///   编辑与渲染一体、单视图，天然不存在「左右分栏同步滚动」问题，彻底消除
+///   前两轮人工反馈的「右侧闪烁 / 滚到底部无法上滚」；工具栏一键切换
+///   source 模式查看 / 编辑原始 Markdown 源码
+/// - 「用系统编辑器打开」外调默认应用；定稿按钮落盘并归档
 library;
 
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_smooth_markdown/flutter_smooth_markdown_editor.dart';
 
 import '../../core/util/markdown_util.dart';
 import '../app_controller.dart';
@@ -24,63 +28,35 @@ class EditorPage extends ConsumerStatefulWidget {
 }
 
 class _EditorPageState extends ConsumerState<EditorPage> {
-  late final TextEditingController _controller;
-  bool _dirty = false;
-  // issue #30：左右分栏同步滚动——左侧源码 / 右侧预览各持一个滚动控制器，
-  // 任一侧滚动时按「相对位置比例」同步另一侧（两侧内容高度不同，像素同步
-  // 会错位）；_syncing 防止同步跳转触发反向再同步造成回环
-  late final ScrollController _leftScrollController;
-  late final ScrollController _rightScrollController;
-  bool _syncing = false;
+  // 方案 A：内容统一由 SmoothMarkdownEditor 持有（内部按模式渲染），
+  // 这里保留 MarkdownEditorController 以便定稿 / 外调系统编辑器时读取源码
+  late final MarkdownEditorController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.initialContent ?? '');
-    _leftScrollController = ScrollController()
-      ..addListener(() => _syncScroll(_leftScrollController, _rightScrollController));
-    _rightScrollController = ScrollController()
-      ..addListener(() => _syncScroll(_rightScrollController, _leftScrollController));
+    _controller = MarkdownEditorController(text: widget.initialContent ?? '')
+      ..addListener(_onControllerChanged);
     _loadExisting();
   }
 
-  /// 双向比例同步：source 滚动时按 已滚动比例 = offset / maxScrollExtent
-  /// 把 target 跳到相同比例位置。任一侧不可滚动（内容不足一屏，
-  /// maxScrollExtent <= 0）时不做同步，避免除零与无意义跳转。
-  ///
-  /// issue #30 修复（人工反馈：滚动时右侧一直闪、滚到底部后无法往上滚）：
-  /// 1. 比例钳制到 [0, 1]——源侧 overscroll 回弹时（bounce 物理下 offset
-  ///    会越出 [0, max]），不再把目标推出可视范围，消除右侧被反复越界
-  ///    回弹造成的闪烁；
-  /// 2. 目标侧正处于用户拖动/惯性滚动（非 Idle）时跳过同步——避免同步
-  ///    跳转与用户手势、惯性动量互相打架，导致底部卡死无法上滚。
-  void _syncScroll(ScrollController source, ScrollController target) {
-    if (_syncing) return;
-    if (!source.hasClients || !target.hasClients) return;
-    final srcMax = source.position.maxScrollExtent;
-    final tgtMax = target.position.maxScrollExtent;
-    if (srcMax <= 0 || tgtMax <= 0) return;
-    // 目标侧正在被用户拖动/惯性滚动（isScrollingNotifier 为 true）时
-    // 不让同步打断它
-    if (target.position.isScrollingNotifier.value) return;
-    _syncing = true;
-    try {
-      final ratio = (source.offset / srcMax).clamp(0.0, 1.0).toDouble();
-      target.jumpTo(ratio * tgtMax);
-    } finally {
-      _syncing = false;
-    }
+  /// controller 文本变化（用户输入 / source 模式编辑 / 程序化赋值）都会
+  /// 触发；未保存状态直接取 controller.isDirty（与内部 savedText 对比）。
+  void _onControllerChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
+
+  bool get _dirty => _controller.isDirty;
 
   Future<void> _loadExisting() async {
     final content = await readExistingReport(_logRoot, widget.date);
     if (content != null && _controller.text.isEmpty && mounted) {
-      // issue #28：赋值 controller 必须 setState——左侧 TextField 内部监听
-      // controller 会自动刷新，右侧 Markdown 取的是构建时的 _controller.text，
-      // 不重建就停留在初始空白（定稿后「查看」路径预览空白即此原因）
-      setState(() {
-        _controller.text = content;
-      });
+      // issue #28：加载既有日报/草稿后标记为已保存——「查看已定稿日报」
+      // 路径（无 initialContent）也能渲染出内容，且不误报未保存修改
+      _controller.text = content;
+      _controller.markSaved();
+      if (mounted) setState(() {});
     }
   }
 
@@ -90,8 +66,6 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   @override
   void dispose() {
     _controller.dispose();
-    _leftScrollController.dispose();
-    _rightScrollController.dispose();
     super.dispose();
   }
 
@@ -120,9 +94,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
         .read(appControllerProvider.notifier)
         .finalizeDaily(widget.date, text);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已定稿')),
-      );
+      _controller.markSaved();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已定稿')));
     }
   }
 
@@ -136,22 +111,21 @@ class _EditorPageState extends ConsumerState<EditorPage> {
       Platform.isLinux
           ? 'xdg-open'
           : Platform.isMacOS
-              ? 'open'
-              : 'start',
+          ? 'open'
+          : 'start',
       [file.path],
       runInShell: Platform.isWindows,
     );
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已用系统编辑器打开（保存后回到此页继续）')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已用系统编辑器打开（保存后回到此页继续）')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final reportName =
-        dailyReportPath(_logRoot, widget.date).split('/').last;
+    final reportName = dailyReportPath(_logRoot, widget.date).split('/').last;
     return Scaffold(
       appBar: AppBar(
         title: Text(reportName),
@@ -182,42 +156,22 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               ),
             ),
           Expanded(
+            // 编辑器内部 Column = 工具栏 + SizedBox(height)，height 需为
+            // 具体数值；参照库示例（example/lib/editor_demo.dart）扣减
+            // 工具栏等固定高度，避免 RenderFlex 溢出
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final split = constraints.maxWidth / 2;
-                return Row(
-                  children: [
-                    SizedBox(
-                      width: split,
-                      // key 供测试定位左侧滚动容器
-                      child: SingleChildScrollView(
-                        key: const ValueKey('editor-left-scroll'),
-                        controller: _leftScrollController,
-                        child: TextField(
-                          controller: _controller,
-                          maxLines: null,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 13,
-                            height: 1.6,
-                          ),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.all(12),
-                          ),
-                          onChanged: (_) => setState(() => _dirty = true),
-                        ),
-                      ),
-                    ),
-                    VerticalDivider(width: 1, thickness: 1),
-                    Expanded(
-                      child: Markdown(
-                        data: _controller.text,
-                        padding: const EdgeInsets.all(12),
-                        controller: _rightScrollController,
-                      ),
-                    ),
-                  ],
+                final editorHeight = constraints.maxHeight > 56
+                    ? constraints.maxHeight - 56
+                    : constraints.maxHeight;
+                return SmoothMarkdownEditor(
+                  key: const ValueKey('editor-smooth-markdown'),
+                  controller: _controller,
+                  // 方案 A 默认 formatted 所见即所得；工具栏内置
+                  // Formatted / Source / Preview / Split 切换按钮
+                  initialMode: MarkdownEditorMode.formatted,
+                  height: editorHeight,
+                  placeholder: '开始撰写日报…（Markdown 渲染块点击即可编辑）',
                 );
               },
             ),

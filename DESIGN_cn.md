@@ -49,7 +49,7 @@
 | 文档提取 | Rust 解析器（pdf-extract + quick-xml + zip） |
 | 音频转录 | OpenAI 兼容转录接口（可指 Groq/火山/通义等，base_url 可配） |
 | LLM | Claude + DeepSeek + Ollama 三家原生适配 |
-| 编辑器 | 简易内置（文本+高亮+预览分栏）+ 可外调系统编辑器 |
+| 编辑器 | 内置所见即所得 Markdown 编辑器（flutter_smooth_markdown，formatted 渲染块点击即编辑，类 Typora）+ 可外调系统编辑器 |
 | 随手记录触发 | 全局热键弹窗（Rust `global-hotkey` crate） |
 
 **架构核心决策**：既然文档解析用 Rust，则把文件监控（`notify`）与全局热键（`global-hotkey`）一并放进 Rust core，统一通过 `flutter_rust_bridge` 暴露给 Dart——避免为三平台各写一套 Swift/Kotlin/C++ 平台通道。
@@ -97,7 +97,7 @@
 | Rust 全局热键 | `global-hotkey` | 三平台注册系统级快捷键 |
 | 状态管理 | Riverpod | 个人项目，轻量且可测 |
 | 密钥存储 | flutter_secure_storage | Keychain / libsecret / Credential Manager |
-| Markdown 渲染 | flutter_markdown | 预览分栏 |
+| Markdown 渲染/编辑 | flutter_smooth_markdown | 所见即所得编辑器 + 渲染 |
 | 托盘 | tray_manager | 常驻 + 托盘菜单 |
 | 通知 | flutter_local_notifications | 生成完成提醒 |
 | 网络 | dio + OAuth2 包 | GitLab/GitHub API |
@@ -261,9 +261,14 @@ CodeProvider
 
 ### 5.7 编辑器
 
-- 简易内置：`TextField`（等宽字体）+ flutter_markdown 预览分栏（左右 / Tab）；左右分栏滚动同步——按滚动比例对齐源码与预览位置（issue #30）
-- 行号、Markdown 语法高亮（简易正则高亮，不引重型编辑器）
-- "用系统编辑器打开"按钮 → `OpenFile` 定位 + 系统默认应用打开 md
+- 内置所见即所得 Markdown 编辑器：`flutter_smooth_markdown` 0.8.1，默认
+  formatted 模式（渲染块点击即可编辑，类 Typora）——编辑与渲染一体、单视图，
+  天然不存在「左右分栏同步滚动」问题（issue #30 方案 A，经人工确认后替换原
+  `TextField` + flutter_markdown 预览分栏实现；前两轮分栏同步滚动的闪烁/底部
+  卡死问题一并消除）；工具栏内置 Formatted / Source / Preview / Split 模式
+  切换按钮，可一键切到 source 模式查看原始 Markdown 源码
+- 工具栏内置常用排版命令（标题/列表/引用/代码块/表格等）
+- "用系统编辑器打开"按钮 → 写入草稿文件 + 系统默认应用打开 md
 - 定稿按钮 → 落盘 + 归档（从"草稿"态进入"已定稿"）
 
 ### 5.8 设置模块
@@ -384,7 +389,7 @@ OpenAI 兼容 `POST {base}/audio/transcriptions`，`multipart` 上传。Groq、�
 - Rust core v0：`global-hotkey` + `notify` 接入
 - 随手记录：热键弹窗 + inbox 落盘
 - GitLab provider + 日报生成流水线（AI 用 DeepSeek 起步，Claude 后可配）
-- 简易编辑器（文本 + 预览分栏）+ 定稿落盘
+- 所见即所得 Markdown 编辑器 + 定稿落盘
 - **验收**：用户在 Mac 上热键记一条 → 生成今日日报 → 定稿
 
 ### M2 — 数据源扩展（1~2 周）
