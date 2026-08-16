@@ -222,6 +222,16 @@ CodeProvider
   on the daily-report page each "local file changes" row has a button to quickly add that file to the exclusion rules (issue #18);
   hovering over a row highlights it with a soft rounded background and restores on mouse-out (issue #24) so the current row is easy to track
 - Change records are written to `.daymark/素材缓存/<date>.json` for the report pipeline to consume
+- Historical-date rescanning (issue #19) additionally performs git-history
+  recovery (issue #32): when a file modified on the target day is modified again
+  later, its mtime is overwritten and an mtime-only rescan cannot recover it
+  (modified on the 11th, again on the 14th, generating the 11th report on the
+  16th shows no record). During the rescan, git repositories under the watched
+  directories are discovered and files touched by commits whose author date falls
+  in the target day are added as change records — git history is not lost when
+  disk mtimes are overwritten. mtime records take priority, git records only fill
+  missing paths, deletion commits produce kind='remove' records, and git
+  unavailable / not a repository / timeout degrades gracefully
 - Cloud-sync mtime false positives: dedupe Modify events whose "content hash unchanged" during aggregation (optional; v1 just records)
 
 ### 5.4 Audio Transcription Module

@@ -147,6 +147,23 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Fixed
 
+- Fixed historical-date rescanning losing change records for files "modified on
+  the target day but modified again later" (issue #32): the rescan (issue #19)
+  attributes files to natural days purely by their current disk mtime, so once
+  a file modified on the 11th was modified again on the 14th its mtime is
+  overwritten to the 14th, and generating the 11th daily report on the 16th
+  showed no change record for it. Fix: while rescanning, git repositories under
+  the watched directories are discovered, and files touched by commits whose
+  author date falls in the target natural day (same semantics as the
+  GitLab/GitHub commit collection) are added as change records — git history is
+  not lost when disk mtimes are overwritten. mtime records take priority and git
+  records only fill missing paths; deletion commits produce kind='remove'
+  records; git unavailable / not a repository / timeout degrades gracefully and
+  non-git directories behave as before. Added 9 tests in
+  `test/collect_service_git_recovery_test.dart` (reproduction, author-date
+  attribution, out-of-range exclusion, exclude rules, same-day multi-commit
+  merging, deletion recovery, nested repos, pseudo-repo skip, cache write-back).
+
 - Fixed the macOS / Windows CI build failures (issue #30, follow-up of plan A):
   `flutter_smooth_markdown` 0.8.1 / `flutter_math_fork` 0.7.4 use exhaustive
   switches over `TargetPlatform` that lack the `ohos` branch, and the

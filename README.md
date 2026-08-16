@@ -129,7 +129,11 @@ Update packages are cached in `<app support dir>/update/` (manifest.json + insta
 
 - Linux global hotkey depends on X11 (may not work under Wayland)
 - The transcription endpoint is OpenAI-compatible (Groq / Volcano / Qwen all work; configure base_url)
-- Cloud-synced directory mtime refreshes can cause false positives; daily reports use the wording "changes detected today"
+- Cloud-synced directory mtime refreshes can cause false positives; daily reports use the wording "changes detected today".
+  Historical-date rescanning attributes files to natural days by disk mtime — for a file modified on the target day and
+  modified again later (mtime overwritten), files inside git repositories are recovered from git history (issue #32),
+  while non-git files cannot be recovered (generate the daily report on the day itself, or use quick notes for
+  important changes, when the app was not running that day)
 - Auto update only applies to installer-form artifacts (AppImage / dmg install / NSIS install);
   GitHub Actions tar.gz / zip artifacts are not auto-installable — download them manually after a new version is detected
 

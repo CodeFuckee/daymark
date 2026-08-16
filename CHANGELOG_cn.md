@@ -144,6 +144,17 @@
 
 ### 修复
 
+- 修复历史日期补扫丢失「当日修改、之后又被修改」文件的变更记录（issue #32）：
+  补扫（issue #19）只按「当前磁盘 mtime」归属自然日，文件在 11 号修改、14 号
+  又修改后 mtime 已被覆盖为 14 号，16 号生成 11 号日报时该文件没有对应的变更
+  记录。修复：补扫时顺带发现监控目录内的 git 仓库，按 author date（与
+  GitLab/GitHub 提交采集同语义）查询目标自然日内提交触及的文件，补为变更
+  记录——git 历史不随磁盘 mtime 覆盖而丢失；mtime 记录优先、git 记录只补缺失
+  路径；删除的提交补 kind='remove' 记录；git 不可用 / 非仓库 / 超时优雅跳过，
+  非 git 目录行为不变。新增 `test/collect_service_git_recovery_test.dart`
+  9 个测试（复现、author date 归属、日期外不混入、排除规则、同日多次提交合并、
+  删除恢复、嵌套仓库、伪仓库跳过、缓存回写）。
+
 - 修复 macOS / Windows CI 构建失败（issue #30 方案 A 后续）：`flutter_smooth_markdown`
   0.8.1 / `flutter_math_fork` 0.7.4 内部对 `TargetPlatform` 的穷尽 switch 缺少
   `ohos` 枚举分支，而 `macos-build` / `windows-build` 的 runner 即开发机（shell

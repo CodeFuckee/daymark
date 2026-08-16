@@ -154,7 +154,10 @@ GitHub release 的 asset digest）→ 下载完成自动弹出对话框提示重
 
 - Linux 全局热键依赖 X11（Wayland 下可能不可用）
 - 转录接口为 OpenAI 兼容协议（Groq / 火山 / 通义均可，配置 base_url）
-- 云同步目录 mtime 刷新可能产生误报，日报措辞用"今日检测到变更"
+- 云同步目录 mtime 刷新可能产生误报，日报措辞用"今日检测到变更"；历史日期
+  补扫按磁盘 mtime 归属自然日——文件在目标日修改、之后又被更晚修改覆盖 mtime
+  时，git 仓库内文件可从 git 历史恢复（issue #32），非 git 文件无法恢复
+  （当天应用未运行时建议当天生成日报，或对重要改动使用随手记录）
 - 自动更新仅支持安装包形态的产物（AppImage / dmg 安装 / NSIS 安装）；
   GitHub Actions 的 tar.gz / zip 构建产物不适用自动安装，检测到新版本后
   请手动下载更新

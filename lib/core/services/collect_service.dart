@@ -260,35 +260,160 @@ class CollectService {
   /// 刷新素材补扫——issue #13 的初始扫描只补「今日」，历史日期从不补扫）。
   /// 单目录失效/不可访问时跳过该目录，不中断其余目录；递归不跟随符号链接；
   /// .daymark 自身缓存与排除规则命中的文件一律跳过（与事件流过滤一致）。
+  ///
+  /// issue #32：mtime 只能反映「当前最后一次修改」，文件在 [date] 修改后、
+  /// 又被更晚的修改覆盖 mtime 时补扫不到（11 号改、14 号又改，16 号生成
+  /// 11 号日报看不到该文件）。遍历时顺带发现监控目录内的 git 仓库，补扫
+  /// [date] 自然日 author date 的提交触及的文件——git 历史不随磁盘 mtime
+  /// 覆盖而丢失。mtime 记录优先，git 记录只补缺失路径。
   Future<List<FileChange>> _scanDate(List<String> dirs, DateTime date) async {
     final since = dayStart(date);
     final until = since.add(const Duration(days: 1));
-    final result = <FileChange>[];
+    // path → 记录：mtime 记录先入，git 补扫记录用 putIfAbsent 只填空缺
+    final byPath = <String, FileChange>{};
+    final repos = <String>{};
     for (final dir in dirs) {
+      // issue #32：监控目录本身可能就是 git 仓库（walk 只产出根目录的
+      // 子条目，根目录的 .git 不会被 yield 到，需单独探测；嵌套仓库的
+      // .git 在 walk 中按目录实体探测）
+      if (File('$dir/.git').existsSync() || Directory('$dir/.git').existsSync()) {
+        repos.add(dir);
+      }
       try {
         await for (final entity
             in Directory(dir).list(recursive: true, followLinks: false)) {
-          if (entity is! File) continue;
           if (isOwnCachePath(entity.path) || _isExcludedPath(entity.path)) {
             continue;
           }
+          if (entity is Directory) {
+            // issue #32：发现 git 工作树（.git 可为目录或文件——
+            // 子模块/链接工作树场景为文件）。同目录后续还会再访问到
+            // .git 内部文件，但那些文件不参与 mtime 命中且不在 git log
+            // 输出里，不会产生记录。
+            if (File('${entity.path}/.git').existsSync() ||
+                Directory('${entity.path}/.git').existsSync()) {
+              repos.add(entity.path);
+            }
+            continue;
+          }
+          if (entity is! File) continue;
           final stat = entity.statSync();
           if (stat.type == FileSystemEntityType.notFound) continue;
           if (stat.modified.isBefore(since) || !stat.modified.isBefore(until)) {
             continue;
           }
-          result.add(FileChange(
+          byPath[entity.path] = FileChange(
             path: entity.path,
             mtime: stat.modified,
             size: stat.size,
             kind: 'modify', // 扫描发现的是存量文件，按"已修改"记录
-          ));
+          );
         }
       } catch (e) {
         stderr.writeln('[daymark] scan watched dir failed for $dir: $e');
       }
     }
-    return result;
+    if (repos.isNotEmpty) {
+      for (final g in await _scanGitHistory(repos.toList(), date)) {
+        byPath.putIfAbsent(g.path, () => g);
+      }
+    }
+    return byPath.values.toList();
+  }
+
+  /// git 历史补扫（issue #32）：查询 [repoRoots] 中 author date 落在
+  /// [date] 自然日的提交（与 GitLab/GitHub 提交采集同语义，见
+  /// inNaturalDay），把提交触及的文件补为变更记录——文件在目标日期修改后、
+  /// 又被更晚的修改覆盖 mtime 时，mtime 扫描恢复不了，git 历史不受影响。
+  /// 删除的提交按 kind='remove' 记录（磁盘文件已不存在，mtime 扫描同样
+  /// 恢复不了）；同路径同日多次提交合并为单条记录，取当日最后一次提交时间。
+  /// git 不可用 / 非仓库 / 超时：优雅跳过该仓库，保持 mtime 扫描原行为。
+  Future<List<FileChange>> _scanGitHistory(
+    List<String> repoRoots,
+    DateTime date,
+  ) async {
+    final since = dayStart(date).subtract(const Duration(seconds: 1));
+    final result = <String, FileChange>{};
+    for (final repo in repoRoots) {
+      try {
+        // --since 只按 commit date 做粗筛（作者时间必然不早于提交时间，
+        // 不会漏掉目标日的提交；Git 2.44 之前的 --since 无法按 author
+        // date 过滤），精确归属在 Dart 侧用 inNaturalDay 按 %at 判定。
+        // core.quotepath=false：非 ASCII 路径（如「大干围建筑景观合模.skp」）
+        // 以原始 UTF-8 输出，不做八进制转义。
+        // ohos 定制 SDK 的 Process.run 无 timeout 参数：用 Process.start +
+        // exitCode 超时（超时 kill 掉进程，防止异常仓库挂死补扫）。
+        final proc = await Process.start('git', [
+          '-C', repo,
+          '-c', 'core.quotepath=false',
+          'log',
+          '--since=${dateKey(since)} ${hhmm(since)}:00',
+          '--name-status',
+          '--pretty=format:__DAYMARK_COMMIT__%at',
+          '--diff-filter=ACMRDT',
+          '--no-merges',
+          '--no-renames',
+        ]);
+        final stdoutFuture = proc.stdout.transform(utf8.decoder).join();
+        final int code;
+        try {
+          code = await proc.exitCode.timeout(const Duration(seconds: 10));
+        } on TimeoutException {
+          proc.kill();
+          stderr.writeln('[daymark] git history scan timeout for $repo');
+          continue;
+        }
+        if (code != 0) continue;
+        final out = await stdoutFuture;
+
+        DateTime? commitTime;
+        for (final raw in out.split('\n')) {
+          final line = raw.endsWith('\r') ? raw.substring(0, raw.length - 1) : raw;
+          if (line.isEmpty) continue;
+          if (line.startsWith('__DAYMARK_COMMIT__')) {
+            final ts = int.tryParse(line.substring('__DAYMARK_COMMIT__'.length));
+            commitTime = ts == null ? null : DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+            continue;
+          }
+          if (commitTime == null || !inNaturalDay(commitTime, date)) continue;
+          final tab = line.indexOf('\t');
+          if (tab <= 0) continue;
+          final kindChar = line.substring(0, 1);
+          final relPath = line.substring(tab + 1);
+          if (relPath.isEmpty) continue;
+          // Windows 下 git 输出用 `/`，而 Directory 列表用 `\`：统一为平台
+          // 分隔符，避免同文件在缓存/合并时被当作两个不同 path
+          final absPath = '$repo/$relPath'.replaceAll('/', Platform.pathSeparator);
+          if (isOwnCachePath(absPath) || _isExcludedPath(absPath)) continue;
+          final kind = switch (kindChar) {
+            'A' => 'create',
+            'D' => 'remove',
+            _ => 'modify', // M/C/R/T
+          };
+          var size = 0;
+          try {
+            final stat = File(absPath).statSync();
+            if (stat.type != FileSystemEntityType.notFound) size = stat.size;
+          } catch (_) {
+            // 文件不存在/权限不足：size 保持 0（remove 记录同理）
+          }
+          final existing = result[absPath];
+          // git log 默认最新在前，跨仓库顺序不定：保留当日最后一次提交
+          if (existing == null || commitTime.isAfter(existing.mtime)) {
+            result[absPath] = FileChange(
+              path: absPath,
+              mtime: commitTime,
+              size: size,
+              kind: kind,
+            );
+          }
+        }
+      } catch (_) {
+        // git 不存在 / 超时：跳过该仓库，不阻断其余仓库与整体补扫
+        stderr.writeln('[daymark] git history scan skipped for $repo');
+      }
+    }
+    return result.values.toList();
   }
 
   /// 把补扫出的文件变更合并进 [date] 的素材缓存（串入缓存写链，避免与
