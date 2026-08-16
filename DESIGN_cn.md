@@ -79,7 +79,7 @@
 │  Rust: 文档解析(pptx/xlsx/docx/pdf) 文件监控(notify)         │
 │        全局热键(global-hotkey)                               │
 │  Dart: 网络(http/oauth) 密钥存储(flutter_secure_storage)     │
-│        Markdown 渲染(flutter_markdown) 本地文件 IO          │
+│        Markdown 渲染/编辑(flutter_smooth_markdown) 本地文件 IO │
 └─────────────────────────────────────────────────────────────┘
 ```
 

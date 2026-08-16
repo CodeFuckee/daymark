@@ -131,6 +131,16 @@
 
 ### 修复
 
+- 修复 macOS / Windows CI 构建失败（issue #30 方案 A 后续）：`flutter_smooth_markdown`
+  0.8.1 / `flutter_math_fork` 0.7.4 内部对 `TargetPlatform` 的穷尽 switch 缺少
+  `ohos` 枚举分支，而 `macos-build` / `windows-build` 的 runner 即开发机（shell
+  executor，安装的是 OpenHarmony fork Flutter），编译 kernel_snapshot 时直接报
+  「非穷尽匹配」错误。修复：将既有补丁脚本接入这两个 CI job（`flutter pub get`
+  后、构建前执行 `scripts/patch_ohos_pub_cache.sh` / 新增的
+  `scripts/patch_ohos_pub_cache.ps1`）；补丁带 SDK 守卫——仅当当前 Flutter 为
+  OHOS fork（`TargetPlatform` 含 `ohos`）时应用，标准 stable 自动跳过，
+  `dart-test` / `linux-build` 等标准 Flutter 流水线不受影响。补丁幂等可重复执行。
+
 - 修复左右分栏同步滚动的右侧闪烁与底部无法上滚（issue #30 人工反馈）：原
   实现把源侧滚动比例原样传给目标侧，bounce/overscroll 时源侧 offset 越出
   [0, max]，会把目标侧反复推出可视范围造成右侧一直闪烁；且同步跳转会打断

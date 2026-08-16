@@ -127,6 +127,20 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Fixed
 
+- Fixed the macOS / Windows CI build failures (issue #30, follow-up of plan A):
+  `flutter_smooth_markdown` 0.8.1 / `flutter_math_fork` 0.7.4 use exhaustive
+  switches over `TargetPlatform` that lack the `ohos` branch, and the
+  `macos-build` / `windows-build` runners are the dev machines themselves (shell
+  executors running the OpenHarmony fork of Flutter), so kernel_snapshot
+  compilation failed with "non-exhaustive switch" errors. Fix: the patch scripts
+  are now wired into those two CI jobs (run after `flutter pub get`, before the
+  build: `scripts/patch_ohos_pub_cache.sh` for macOS and the newly added
+  `scripts/patch_ohos_pub_cache.ps1` for Windows); the patch carries an SDK guard
+  — it only applies when the active Flutter is the OHOS fork (`TargetPlatform`
+  contains `ohos`) and is skipped automatically on standard stable, so the
+  standard-Flutter pipelines (`dart-test` / `linux-build`) are unaffected. The
+  patch is idempotent.
+
 - Fixed the split-pane sync-scroll flicker and being unable to scroll back up
   at the bottom (issue #30, reported by the user): the previous implementation
   forwarded the source side's scroll ratio unchanged to the target side, so

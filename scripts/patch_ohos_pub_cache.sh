@@ -1,14 +1,27 @@
 #!/usr/bin/env bash
-# 本地 ohos Flutter SDK 兼容补丁（issue #30 方案 A 引入 flutter_smooth_markdown 后新增）：
-# 本项目开发机使用 OpenHarmony fork 的 Flutter（TargetPlatform 多出 ohos 枚举值），
-# 而 flutter_smooth_markdown 0.8.1 / flutter_math_fork 0.7.4 内部对 TargetPlatform
-# 做了穷尽 switch，未被 ohos SDK 编译（flutter test）时直接报编译错误。
-# CI 使用标准 Flutter stable（ghcr.io/cirruslabs/flutter:stable），无 ohos 枚举，
-# 无需本补丁；本脚本仅修复本地开发环境，幂等可重复执行。
+# 本地/CI ohos Flutter SDK 兼容补丁（issue #30 方案 A 引入 flutter_smooth_markdown 后新增）：
+# flutter_smooth_markdown 0.8.1 / flutter_math_fork 0.7.4 内部对 TargetPlatform 做了
+# 穷尽 switch，而 OpenHarmony fork 的 Flutter（TargetPlatform 多出 ohos 枚举值）编译
+# 时直接报"非穷尽匹配"错误。macos-build / windows-build CI 的 runner 即开发机（shell
+# executor，安装的是 ohos fork Flutter），故 .gitlab-ci.yml 中这两个 job 在构建前执行
+# 本脚本；dart-test / linux-build 使用标准 Flutter stable（无 ohos 枚举），无需补丁。
+# 脚本带 SDK 守卫：仅当当前 Flutter 的 TargetPlatform 含 ohos 时才应用，标准 stable
+# 自动跳过（避免补丁引入的 ohos case 在标准 SDK 上报未定义错误）。幂等可重复执行。
 #
 # 用法：bash scripts/patch_ohos_pub_cache.sh [pub-cache-hosted-dir]
 # 默认 PUB_CACHE_HOSTED=$HOME/.pub-cache/hosted
 set -euo pipefail
+
+# SDK 守卫：当前 Flutter 非 OHOS fork（TargetPlatform 无 ohos 枚举）时直接跳过
+FLUTTER_BIN="$(command -v flutter 2>/dev/null || true)"
+if [ -n "$FLUTTER_BIN" ]; then
+  SDK_ROOT="$(cd "$(dirname "$FLUTTER_BIN")/.." && pwd)"
+  if [ -f "$SDK_ROOT/packages/flutter/lib/src/foundation/platform.dart" ] && \
+     ! grep -q "ohos" "$SDK_ROOT/packages/flutter/lib/src/foundation/platform.dart"; then
+    echo "当前 Flutter SDK 无 TargetPlatform.ohos（标准 stable），无需补丁，跳过"
+    exit 0
+  fi
+fi
 
 HOSTED_DIR="${1:-$HOME/.pub-cache/hosted}"
 
