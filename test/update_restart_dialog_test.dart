@@ -303,7 +303,7 @@ void main() {
   group('AppController 更新重启链路（issue #29）', () {
     // 非 widget 测试不经过 ProviderScope，需手动触发 build() 初始化
     // updateConfig / updateService 等 late 字段（等价于真实 Provider 装配）
-    ProviderContainer _container(_DialogController controller) {
+    ProviderContainer container(_DialogController controller) {
       final container = ProviderContainer(
         overrides: [appControllerProvider.overrideWith(() => controller)],
       );
@@ -317,7 +317,7 @@ void main() {
       controller.onWindowModeChanged = (mode) async {
         controller.restoredMainWindow = mode == WindowMode.main;
       };
-      _container(controller);
+      container(controller);
       await controller.checkForUpdates();
       expect(controller.restoredMainWindow, isTrue,
           reason: '下载完成后应切回主窗口保证对话框可见');
@@ -326,7 +326,7 @@ void main() {
 
     test('restartToUpdate：无 manifest → 返回 false 且置 error 状态', () async {
       final controller = _DialogController();
-      _container(controller);
+      container(controller);
       final ok = await controller.restartToUpdate();
       expect(ok, isFalse);
       expect(controller.state.updateStatus.phase, UpdatePhase.error);
