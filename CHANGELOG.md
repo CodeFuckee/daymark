@@ -108,6 +108,21 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Fixed
 
+- Fixed the split-pane sync-scroll flicker and being unable to scroll back up
+  at the bottom (issue #30, reported by the user): the previous implementation
+  forwarded the source side's scroll ratio unchanged to the target side, so
+  under bouncing/overscroll physics the source offset could leave [0, max],
+  repeatedly pushing the target out of its viewport and making the right pane
+  flicker; the sync jump also interrupted an ongoing drag/ballistic on the
+  target side, making it hard to scroll back up after reaching the bottom.
+  Fix: clamp the sync ratio to [0, 1] (when the source bounces out of range
+  the target holds at the boundary instead of going out of range); skip the
+  sync while the target is being dragged or in ballistic momentum
+  (isScrollingNotifier is true) so it never fights the user's gesture. Added
+  3 regression tests in `editor_page_sync_scroll_test.dart` (target never
+  leaves the viewport during source overscroll bounce, both panes can scroll
+  back up from the bottom, and a syncing source cannot yank a target that is
+  mid-ballistic)
 - After finalizing a daily report, clicking "View" at the top opened the
   editor with a blank right-side preview (issue #28): the editor page loads
   an already-finalized report asynchronously in `_loadExisting()` — the left

@@ -25,6 +25,7 @@ import 'package:daymark/core/update/update_service.dart';
 import 'package:daymark/core/util/date_util.dart';
 import 'package:daymark/ui/app_controller.dart';
 import 'package:daymark/ui/pages/editor_page.dart';
+import 'package:flutter/foundation.dart' show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -230,5 +231,129 @@ void main() {
     left.position.jumpTo(0);
     await tester.pump();
     expect(right.position.pixels, 0);
+  });
+
+  // ---- issue #30 人工反馈回归（2026-08-16 用户反馈：滚动时右侧一直在闪、
+  //      滚动到底部后无法往上滚动）----
+
+  testWidgets('回归：源侧越界回弹时目标始终保持在可视范围内（修复右侧闪烁）',
+      (tester) async {
+    // macOS 默认 bounce 物理，overscroll 时 offset 可越出 [0, max]，
+    // 最容易复现「越界比例传播到另一侧」导致的闪烁
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+
+    await pumpEditor(
+      tester,
+      logRoot: logRoot,
+      date: date,
+      initialContent: longContent,
+    );
+
+    final left = leftScrollable(tester);
+    final right = rightScrollable(tester);
+    final leftMax = left.position.maxScrollExtent;
+    final rightMax = right.position.maxScrollExtent;
+    expect(leftMax, greaterThan(0));
+    expect(rightMax, greaterThan(0));
+
+    // 底部越界：左侧被推到 max 之上（bounce 允许越界像素）
+    left.position.jumpTo(leftMax + 120);
+    await tester.pump();
+    expect(right.position.pixels, inInclusiveRange(0.0, rightMax),
+        reason: '左侧底部越界回弹时，右侧不得被推出可视范围（否则闪烁）');
+
+    // 顶部越界：左侧被推到 0 之下
+    left.position.jumpTo(-120);
+    await tester.pump();
+    expect(right.position.pixels, inInclusiveRange(0.0, rightMax),
+        reason: '左侧顶部越界回弹时，右侧不得被推出可视范围（否则闪烁）');
+
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('回归：两侧滚动到底部后仍可向上滚动（修复底部卡死）', (tester) async {
+    await pumpEditor(
+      tester,
+      logRoot: logRoot,
+      date: date,
+      initialContent: longContent,
+    );
+
+    final left = leftScrollable(tester);
+    final right = rightScrollable(tester);
+    final leftMax = left.position.maxScrollExtent;
+    final rightMax = right.position.maxScrollExtent;
+    expect(leftMax, greaterThan(0));
+    expect(rightMax, greaterThan(0));
+
+    // 左侧到底 → 右侧应同步到底
+    left.position.jumpTo(leftMax);
+    await tester.pump();
+    expect(right.position.pixels, closeTo(rightMax, 1.0),
+        reason: '左侧到底时右侧应同步到底');
+
+    // 用户在底部向上拖动右侧（内容向下移动 → dy>0）→ 两侧都应离开底部
+    await tester.drag(find.byType(Markdown), const Offset(0, 300));
+    await tester.pump();
+    expect(right.position.pixels, lessThan(rightMax),
+        reason: '底部时向上拖动右侧应可行，不得卡死');
+    expect(left.position.pixels, lessThan(leftMax),
+        reason: '右侧上滚时左侧应跟随离开底部');
+
+    // 反向：右侧到底后，用户在底部向上拖动左侧 → 两侧都应离开底部
+    right.position.jumpTo(rightMax);
+    await tester.pump();
+    expect(left.position.pixels, closeTo(leftMax, 1.0),
+        reason: '右侧到底时左侧应同步到底');
+
+    await tester.drag(
+        find.byKey(const ValueKey('editor-left-scroll')), const Offset(0, 300));
+    await tester.pump();
+    expect(left.position.pixels, lessThan(leftMax),
+        reason: '底部时向上拖动左侧应可行，不得卡死');
+    expect(right.position.pixels, lessThan(rightMax),
+        reason: '左侧上滚时右侧应跟随离开底部');
+  });
+
+  testWidgets('回归：目标侧惯性滚动中，源侧滚动不得强行打断目标（防抖动）',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+
+    await pumpEditor(
+      tester,
+      logRoot: logRoot,
+      date: date,
+      initialContent: longContent,
+    );
+
+    final left = leftScrollable(tester);
+    final right = rightScrollable(tester);
+    final leftMax = left.position.maxScrollExtent;
+    final rightMax = right.position.maxScrollExtent;
+
+    // 先把两侧都置顶
+    left.position.jumpTo(0);
+    await tester.pump();
+    expect(right.position.pixels, 0, reason: '左侧置顶后右侧应同步置顶');
+
+    // 右侧产生向上的惯性滚动（fling：快速上滑 → 释放后 ballistic 继续）
+    await tester.fling(find.byType(Markdown), const Offset(0, -400), 3000);
+    await tester.pump();
+    expect(right.position.activity, isNot(isA<IdleScrollActivity>()),
+        reason: 'fling 释放后右侧应处于惯性滚动中');
+
+    final rightPixelsDuringBallistic = right.position.pixels;
+    expect(rightPixelsDuringBallistic, lessThan(rightMax),
+        reason: '惯性刚开始时右侧不应已在底部');
+
+    // 惯性滚动未结束时，左侧程序化跳转到底（模拟另一侧滚动）——
+    // 修复后不得把右侧从惯性中强行拽走
+    left.position.jumpTo(leftMax);
+    await tester.pump();
+    expect(right.position.pixels,
+        closeTo(rightPixelsDuringBallistic, 1.0),
+        reason: '目标侧惯性滚动中不得被源侧同步强行打断');
+
+    debugDefaultTargetPlatformOverride = null;
   });
 }

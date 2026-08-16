@@ -47,15 +47,25 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   /// 双向比例同步：source 滚动时按 已滚动比例 = offset / maxScrollExtent
   /// 把 target 跳到相同比例位置。任一侧不可滚动（内容不足一屏，
   /// maxScrollExtent <= 0）时不做同步，避免除零与无意义跳转。
+  ///
+  /// issue #30 修复（人工反馈：滚动时右侧一直闪、滚到底部后无法往上滚）：
+  /// 1. 比例钳制到 [0, 1]——源侧 overscroll 回弹时（bounce 物理下 offset
+  ///    会越出 [0, max]），不再把目标推出可视范围，消除右侧被反复越界
+  ///    回弹造成的闪烁；
+  /// 2. 目标侧正处于用户拖动/惯性滚动（非 Idle）时跳过同步——避免同步
+  ///    跳转与用户手势、惯性动量互相打架，导致底部卡死无法上滚。
   void _syncScroll(ScrollController source, ScrollController target) {
     if (_syncing) return;
     if (!source.hasClients || !target.hasClients) return;
     final srcMax = source.position.maxScrollExtent;
     final tgtMax = target.position.maxScrollExtent;
     if (srcMax <= 0 || tgtMax <= 0) return;
+    // 目标侧正在被用户拖动/惯性滚动（isScrollingNotifier 为 true）时
+    // 不让同步打断它
+    if (target.position.isScrollingNotifier.value) return;
     _syncing = true;
     try {
-      final ratio = source.offset / srcMax;
+      final ratio = (source.offset / srcMax).clamp(0.0, 1.0).toDouble();
       target.jumpTo(ratio * tgtMax);
     } finally {
       _syncing = false;
