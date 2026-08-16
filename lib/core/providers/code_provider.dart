@@ -37,6 +37,14 @@ abstract class CodeProvider {
     required String token,
     int maxCommitsPerRepo = 100,
   });
+
+  /// 拉取实例内全部仓库（issue #31）：设置页「选择仓库」对话框数据源。
+  /// GitLab 返回 path_with_namespace（group/project），GitHub 返回
+  /// full_name（owner/repo），与采集时 Commit.project 的取值一致。
+  Future<List<String>> fetchRepositories({
+    required CodeInstance instance,
+    required String token,
+  });
 }
 
 /// 共享工具：分页翻页直到结果为空
@@ -61,6 +69,21 @@ Future<List<Map<String, dynamic>>> paginate(
     if (list.length < perPage) break;
   }
   return out;
+}
+
+/// 仓库过滤（issue #31）：实例配置了 selectedRepos（并入日报的仓库白名单）
+/// 时，只保留命中的仓库；空列表 = 并入全部仓库（老配置向后兼容）。
+/// [pathOf] 从仓库对象提取匹配键（GitLab: path_with_namespace / path；
+/// GitHub: full_name），与 Commit.project 的取值保持一致。
+List<Map<String, dynamic>> filterReposBySelection(
+  List<Map<String, dynamic>> repos,
+  List<String> selectedRepos,
+  String Function(Map<String, dynamic>) pathOf,
+) {
+  if (selectedRepos.isEmpty) return repos;
+  final selected = selectedRepos.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+  if (selected.isEmpty) return repos;
+  return repos.where((r) => selected.contains(pathOf(r))).toList();
 }
 
 /// 统一构造 Commit（子类复用）

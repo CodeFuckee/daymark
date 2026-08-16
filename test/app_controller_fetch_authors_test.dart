@@ -57,6 +57,13 @@ class _FakeProvider implements CodeProvider {
     int maxCommitsPerRepo = 100,
   }) =>
       onFetchAuthors!(instance);
+
+  @override
+  Future<List<String>> fetchRepositories({
+    required CodeInstance instance,
+    required String token,
+  }) async =>
+      const [];
 }
 
 /// 装配无 IO 服务的 fake controller；providerFactory 注入 fake provider

@@ -41,12 +41,19 @@ class GitHubProvider implements CodeProvider {
       },
       authHeader: auth,
     );
+    // 并入日报的仓库白名单（issue #31）：配置了 selectedRepos 时只拉
+    // 勾选的仓库；空列表 = 全部仓库（老配置向后兼容）
+    final selected = filterReposBySelection(
+      repos,
+      instance.selectedRepos,
+      (r) => r['full_name'] as String? ?? '',
+    );
 
     // 2. 并行拉每仓库 commit
     // 主作者 + 额外账户合并为过滤串（issue #20）
     final authorFilter = mergeAuthorFilter(author, extraAuthors);
     final results = await Future.wait(
-      repos.map(
+      selected.map(
           (r) => _fetchRepoCommits(r, base, token, date, instance, authorFilter)),
     );
     return results.expand((e) => e).toList();
@@ -152,9 +159,16 @@ class GitHubProvider implements CodeProvider {
       },
       authHeader: auth,
     );
+    // 并入日报的仓库白名单（issue #31）：作者拉取与采集同源——用户限定
+    // 了并入仓库范围后，作者也只从这些仓库拉取
+    final selected = filterReposBySelection(
+      repos,
+      instance.selectedRepos,
+      (r) => r['full_name'] as String? ?? '',
+    );
 
     // 2. 并行拉每仓库提交作者
-    final results = await Future.wait(repos.map(
+    final results = await Future.wait(selected.map(
         (r) => _fetchRepoAuthors(r, base, token, instance, maxCommitsPerRepo)));
     final seen = <String>{};
     return results
@@ -219,5 +233,35 @@ class GitHubProvider implements CodeProvider {
       }
       rethrow;
     }
+  }
+
+  @override
+  Future<List<String>> fetchRepositories({
+    required CodeInstance instance,
+    required String token,
+  }) async {
+    final base = instance.baseUrl.trim().isEmpty
+        ? 'https://api.github.com'
+        : instance.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    // 我的仓库列表（分页，与 fetchCommits 同源）：返回 full_name 作为
+    // 勾选值——与采集时 Commit.project 的取值一致，保证勾选必然命中采集过滤。
+    final repos = await paginate(
+      _dio,
+      '$base/user/repos',
+      query: (page) => {
+        'per_page': 100,
+        'page': page,
+        'affiliation': 'owner,collaborator',
+        'sort': 'updated',
+      },
+      authHeader: () => 'Bearer $token',
+    );
+    final names = <String>{};
+    for (final r in repos) {
+      final fullName = r['full_name'] as String? ?? '';
+      if (fullName.trim().isNotEmpty) names.add(fullName.trim());
+    }
+    final list = names.toList()..sort();
+    return list;
   }
 }

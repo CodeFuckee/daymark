@@ -38,6 +38,19 @@
 
 ### 新增
 
+- 代码实例新增「仓库选择」设置（issue #31）：每个 GitLab/GitHub 代码实例
+  可选择将哪些仓库的提交并入日报——「编辑代码实例」对话框新增「选择仓库」
+  入口，用该实例已配置 Token 拉取仓库列表（GitLab 经 membership 项目列表取
+  path_with_namespace，GitHub 经 owner+collaborator 仓库列表取 full_name），
+  复选框勾选，实例卡片展示「已选 N 个仓库」；未选择 = 并入全部仓库（老配置
+  settings.json 无该字段，升级后向后兼容）。采集（fetchCommits）与「拉取提交
+  作者」（fetchCommitAuthors）均按勾选范围过滤，只查询勾选仓库；勾选仓库不
+  在拉取列表中（无权限/已删除）跳过不影响其他仓库；拉取失败对话框内提示并
+  可重试。新增 23 个测试：模型序列化往返/缺键回退/空列表语义、GitLab+GitHub
+  fetchRepositories 与选择过滤（空=全部、只查勾选仓库、缺失仓库跳过、作者
+  拉取同样过滤）、AppController 缺 token/接口失败处理、设置页 widget 测试
+  （勾选保存、默认全部、已选回显、失败重试、空列表提示、列表外保留）。
+
 - 工作日报编辑器改为所见即所得模式（issue #30 第三轮人工确认方案 A）：引入
   `flutter_smooth_markdown` 0.8.1（替换并移除 `flutter_markdown`），默认
   formatted 模式——Markdown 渲染块点击即可编辑（类 Typora），编辑与渲染一体、

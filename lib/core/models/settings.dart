@@ -147,6 +147,11 @@ class CodeInstance {
   /// GitHub 按登录名过滤；GitLab 通过 API 拉项目
   String visibilityFilter;
 
+  /// 并入日报的仓库列表（issue #31）：GitLab 为 path_with_namespace
+  /// （group/project），GitHub 为 full_name（owner/repo）。
+  /// 空列表 = 并入该实例全部仓库（默认行为，老配置向后兼容）。
+  List<String> selectedRepos;
+
   CodeInstance({
     required this.id,
     required this.providerType,
@@ -155,6 +160,7 @@ class CodeInstance {
     this.defaultBranch = '',
     this.enabled = true,
     this.visibilityFilter = '',
+    this.selectedRepos = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -165,6 +171,7 @@ class CodeInstance {
     'defaultBranch': defaultBranch,
     'enabled': enabled,
     'visibilityFilter': visibilityFilter,
+    'selectedRepos': selectedRepos,
   };
 
   factory CodeInstance.fromJson(Map<String, dynamic> json) => CodeInstance(
@@ -175,6 +182,10 @@ class CodeInstance {
     defaultBranch: json['defaultBranch'] as String? ?? '',
     enabled: json['enabled'] as bool? ?? true,
     visibilityFilter: json['visibilityFilter'] as String? ?? '',
+    // 键缺失（老版本配置）回退空列表 = 并入全部仓库（issue #31）
+    selectedRepos: List<String>.from(
+      json['selectedRepos'] as List? ?? const [],
+    ),
   );
 }
 

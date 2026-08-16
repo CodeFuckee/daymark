@@ -45,8 +45,11 @@ class _FakeSettingsService extends SettingsService {
 
 /// 可控的 fake controller：saveSettings 行为由测试注入，build 不触 FRB/IO
 class _FakeController extends AppController {
-  _FakeController({this.onSave, this.onFetchAuthors, AppSettings? initial})
-    : _initial = initial ?? AppSettings(authorName: '测试');
+  _FakeController({
+    this.onSave,
+    this.onFetchAuthors,
+    AppSettings? initial,
+  }) : _initial = initial ?? AppSettings(authorName: '测试');
 
   Future<void> Function(AppSettings next)? onSave;
 
@@ -54,6 +57,9 @@ class _FakeController extends AppController {
   /// 收到设置页传入的实例列表（issue #20 第三轮：应为草稿实例）
   Future<List<CommitAuthor>> Function(List<CodeInstance>? instances)?
   onFetchAuthors;
+
+  /// 拉取仓库列表行为（issue #31）：未注入时返回空列表。
+  Future<List<String>> Function(CodeInstance instance)? onFetchRepos;
 
   /// 记录最近一次收到的实例列表（草稿感知断言用）
   List<CodeInstance>? lastFetchInstances;
@@ -92,6 +98,12 @@ class _FakeController extends AppController {
   }) async {
     lastFetchInstances = instances;
     if (onFetchAuthors != null) return onFetchAuthors!(instances);
+    return const [];
+  }
+
+  @override
+  Future<List<String>> fetchRepositories(CodeInstance instance) async {
+    if (onFetchRepos != null) return onFetchRepos!(instance);
     return const [];
   }
 }
@@ -1127,6 +1139,253 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  group('代码实例仓库选择（issue #31）', () {
+    Future<AppSettings?> openEditAndPick({
+      required WidgetTester tester,
+      required _FakeController controller,
+      required List<String> repos,
+      List<String> alreadySelected = const [],
+      bool Function()? failFirst,
+    }) async {
+      AppSettings? saved;
+      controller.onSave = (next) async {
+        saved = next;
+      };
+      await tester.pumpWidget(_wrap(controller));
+      // 打开编辑实例对话框
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+      // 点「选择仓库」打开勾选对话框
+      await tester.tap(find.text('选择仓库'));
+      await tester.pumpAndSettle();
+      if (failFirst != null && failFirst()) {
+        // 首次失败：显示错误与重试
+        expect(find.textContaining('拉取失败'), findsOneWidget);
+        await tester.tap(find.text('重试'));
+        await tester.pumpAndSettle();
+      }
+      // 逐个勾选
+      for (final repo in repos) {
+        await tester.tap(find.text(repo));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      // 保存实例
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      // 保存设置
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      return saved;
+    }
+
+    testWidgets('勾选仓库并保存：selectedRepos 写入实例', (tester) async {
+      final controller = _FakeController(
+        initial: AppSettings(
+          authorName: '测试',
+          codeInstances: [
+            CodeInstance(
+              id: 'gl1',
+              providerType: 'gitlab',
+              name: '公司 GitLab',
+              baseUrl: 'https://git.example.com',
+            ),
+          ],
+        ),
+      );
+      controller.onFetchRepos = (instance) async =>
+          ['ckd/daymark', 'ckd/shipyard'];
+
+      final saved = await openEditAndPick(
+        tester: tester,
+        controller: controller,
+        repos: ['ckd/daymark'],
+      );
+      expect(saved!.codeInstances.single.selectedRepos, ['ckd/daymark'],
+          reason: '只勾选 ckd/daymark，保存后写入 selectedRepos');
+    });
+
+    testWidgets('默认全部仓库：编辑对话框显示「全部（默认）」，未勾选保存为空列表', (tester) async {
+      final controller = _FakeController(
+        initial: AppSettings(
+          authorName: '测试',
+          codeInstances: [
+            CodeInstance(
+              id: 'gl1',
+              providerType: 'gitlab',
+              name: '公司 GitLab',
+              baseUrl: 'https://git.example.com',
+            ),
+          ],
+        ),
+      );
+      controller.onFetchRepos = (instance) async =>
+          ['ckd/daymark', 'ckd/shipyard'];
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+      expect(find.text('并入日报的仓库：全部（默认）'), findsOneWidget);
+      // 打开勾选对话框但不勾选，直接确定
+      await tester.tap(find.text('选择仓库'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      // 选择后仍是空 → 显示「全部（默认）」
+      expect(find.text('并入日报的仓库：全部（默认）'), findsOneWidget);
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+
+      AppSettings? saved;
+      controller.onSave = (next) async {
+        saved = next;
+      };
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      expect(saved!.codeInstances.single.selectedRepos, isEmpty,
+          reason: '未勾选任何仓库 = 并入全部仓库');
+    });
+
+    testWidgets('已选仓库回显：打开勾选对话框时已勾选，确定后数量文本更新', (tester) async {
+      final controller = _FakeController(
+        initial: AppSettings(
+          authorName: '测试',
+          codeInstances: [
+            CodeInstance(
+              id: 'gl1',
+              providerType: 'gitlab',
+              name: '公司 GitLab',
+              baseUrl: 'https://git.example.com',
+              selectedRepos: const ['ckd/daymark'],
+            ),
+          ],
+        ),
+      );
+      controller.onFetchRepos = (instance) async =>
+          ['ckd/daymark', 'ckd/shipyard'];
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+      // 编辑对话框显示已选数量
+      expect(find.text('并入日报的仓库：已选 1 个'), findsOneWidget);
+      // 打开勾选对话框：ckd/daymark 已勾选
+      await tester.tap(find.text('选择仓库'));
+      await tester.pumpAndSettle();
+      final daymarkTile = tester.widget<CheckboxListTile>(
+        find.widgetWithText(CheckboxListTile, 'ckd/daymark'),
+      );
+      expect(daymarkTile.value, isTrue,
+          reason: '已配置的 selectedRepos 在拉取列表中应回显勾选');
+      // 取消勾选 ckd/daymark，勾选 shipyard
+      await tester.tap(find.text('ckd/daymark'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('ckd/shipyard'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      expect(find.text('并入日报的仓库：已选 1 个'), findsOneWidget,
+          reason: '换勾选另一个仓库，数量不变仍为 1 个');
+      // 保存并断言内容
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      AppSettings? saved;
+      controller.onSave = (next) async {
+        saved = next;
+      };
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      expect(saved!.codeInstances.single.selectedRepos, ['ckd/shipyard']);
+    });
+
+    testWidgets('拉取失败显示错误，重试成功可继续勾选', (tester) async {
+      var calls = 0;
+      final controller = _FakeController(
+        initial: AppSettings(
+          authorName: '测试',
+          codeInstances: [
+            CodeInstance(
+              id: 'gl1',
+              providerType: 'gitlab',
+              name: '公司 GitLab',
+              baseUrl: 'https://git.example.com',
+            ),
+          ],
+        ),
+      );
+      controller.onFetchRepos = (instance) async {
+        calls++;
+        if (calls == 1) throw Exception('网络超时');
+        return ['ckd/daymark'];
+      };
+
+      final saved = await openEditAndPick(
+        tester: tester,
+        controller: controller,
+        repos: ['ckd/daymark'],
+        failFirst: () => calls == 1,
+      );
+      expect(saved!.codeInstances.single.selectedRepos, ['ckd/daymark'],
+          reason: '首次失败重试成功后勾选保存');
+    });
+
+    testWidgets('未拉取到任何仓库：显示提示且无法确定', (tester) async {
+      final controller = _FakeController(
+        initial: AppSettings(
+          authorName: '测试',
+          codeInstances: [
+            CodeInstance(
+              id: 'gl1',
+              providerType: 'gitlab',
+              name: '公司 GitLab',
+              baseUrl: 'https://git.example.com',
+            ),
+          ],
+        ),
+      );
+      controller.onFetchRepos = (instance) async => [];
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('选择仓库'));
+      await tester.pumpAndSettle();
+      expect(find.text('未拉取到任何仓库（请确认 Token 有权限访问项目）'),
+          findsOneWidget);
+      expect(find.text('确定'), findsNothing,
+          reason: '空列表时禁用确定，避免保存空选择');
+    });
+
+    testWidgets('勾选集合合并：列表外已选仓库保留（无权限/已删除不丢选择）', (tester) async {
+      final controller = _FakeController(
+        initial: AppSettings(
+          authorName: '测试',
+          codeInstances: [
+            CodeInstance(
+              id: 'gl1',
+              providerType: 'gitlab',
+              name: '公司 GitLab',
+              baseUrl: 'https://git.example.com',
+              // 旧仓库已无权限访问（不在拉取列表中）
+              selectedRepos: const ['ckd/archived'],
+            ),
+          ],
+        ),
+      );
+      controller.onFetchRepos = (instance) async => ['ckd/daymark'];
+
+      final saved = await openEditAndPick(
+        tester: tester,
+        controller: controller,
+        repos: ['ckd/daymark'],
+      );
+      expect(saved!.codeInstances.single.selectedRepos,
+          containsAll(['ckd/daymark', 'ckd/archived']),
+          reason: '列表内以勾选为准，列表外已选值保留（与 issue #20 作者勾选语义一致）');
     });
   });
 }

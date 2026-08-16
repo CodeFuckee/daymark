@@ -207,7 +207,7 @@ CodeProvider
 └── GitHubProvider   # REST API v3, multiple accounts
 ```
 
-- **Config** (settings page): instance name, base_url, token (in keychain), default branch, visibility filter
+- **Config** (settings page): instance name, base_url, token (in keychain), default branch, visibility filter, repository selection (issue #31: per-instance pick of which repositories' commits are merged into the daily report; empty = all repositories, backward compatible)
 - **Fetching**: pulls commits by natural day with `since=YYYY-MM-DD+08:00` / `until`, multiple projects in parallel, deduplicated by sha (same logic as collect.py)
 - **Time zone**: fixed +08:00 natural days (inherits the existing pitfall note)
 - Provides per-date query: `List<Commit> forDate(date)`
@@ -286,7 +286,7 @@ Generation is **re-entrant**: the draft can be regenerated after materials chang
 | Group | Items |
 |---|---|
 | Log | root directory picker, author name, accounts merged into code commits (supports pulling real commit authors from code repositories for selection, issue #20; the pull uses the settings draft instance list, so newly added unsaved instances can also be pulled, issue #20 round 3), time zone |
-| Code | GitLab/GitHub instance list (add/remove/edit), tokens, branches, filters |
+| Code | GitLab/GitHub instance list (add/remove/edit), tokens, branches, filters, repository selection (issue #31: per-instance pick of which repositories' commits are merged into the daily report; empty = all) |
 | Directory watching | watch directory list, exclusion rules |
 | Audio | audio directory, transcription base_url/key/model |
 | AI | dynamic provider list (add/edit/delete, cc-switch style: "Add provider" pops a page to pick the type — Claude / DeepSeek / Ollama / OpenAI-compatible; issue #25) + main/fallback/meeting-blocked selection, tone preference |

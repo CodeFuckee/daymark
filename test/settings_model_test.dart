@@ -69,6 +69,40 @@ void main() {
   });
 
     aiProviderGroup();
+
+  group('CodeInstance.selectedRepos（issue #31）', () {
+    test('selectedRepos 序列化往返', () {
+      final original = CodeInstance(
+        id: 'gl1',
+        providerType: 'gitlab',
+        selectedRepos: const ['ckd/daymark', 'ckd/shipyard'],
+      );
+      final roundtrip = CodeInstance.fromJson(original.toJson());
+      expect(roundtrip.selectedRepos, ['ckd/daymark', 'ckd/shipyard']);
+    });
+
+    test('键缺失（老版本配置）时为空列表且可修改 = 并入全部仓库（issue #31）', () {
+      final parsed = CodeInstance.fromJson(const {
+        'id': 'gl1',
+        'providerType': 'gitlab',
+      });
+      expect(parsed.selectedRepos, isEmpty,
+          reason: '老版本 settings.json 无该字段，升级后应为空（并入全部仓库）');
+      parsed.selectedRepos.add('ckd/daymark');
+      expect(parsed.selectedRepos, ['ckd/daymark']);
+    });
+
+    test('默认 CodeInstance 的 selectedRepos 为空列表（并入全部仓库）', () {
+      expect(CodeInstance(id: 'x', providerType: 'gitlab').selectedRepos, isEmpty);
+    });
+
+    test('空列表与全选语义区分：toJson 保留空列表字段', () {
+      final json = CodeInstance(id: 'gl1', providerType: 'gitlab').toJson();
+      expect(json.containsKey('selectedRepos'), isTrue);
+      expect(json['selectedRepos'], isEmpty,
+          reason: '字段必须落盘：用户勾选后清空=全部仓库，与未配置的语义一致');
+    });
+  });
 }
 
 // ─────────────────────────── AI 供应商（issue #25） ───────────────────────────

@@ -180,4 +180,138 @@ void main() {
           reason: '已达回看上限，不应继续翻页');
     });
   });
+
+  group('GitHubProvider 仓库选择（issue #31）', () {
+    test('fetchRepositories 返回 user/repos 的 full_name（排序）', () async {
+      final adapter = _FakeAdapter(repos: [
+        {'full_name': 'ckd/shipyard', 'visibility': 'public'},
+        {'full_name': 'ckd/daymark', 'visibility': 'private'},
+      ]);
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitHubProvider(dio: dio);
+      final repos = await provider.fetchRepositories(
+        instance: CodeInstance(
+          id: 'gh1',
+          providerType: 'github',
+          baseUrl: 'https://api.github.com',
+        ),
+        token: 'test-token',
+      );
+      expect(repos, ['ckd/daymark', 'ckd/shipyard'],
+          reason: 'full_name 为勾选值（与 Commit.project 一致），按名排序');
+      final repoRequests =
+          adapter.requests.where((r) => r.$1.endsWith('/user/repos')).toList();
+      expect(repoRequests, isNotEmpty,
+          reason: '与采集同源：owner+collaborator 拉仓库列表');
+      expect(repoRequests.first.$2['affiliation'], 'owner,collaborator');
+    });
+
+    test('selectedRepos 为空（老配置）→ 拉取全部仓库提交', () async {
+      final adapter = _FakeAdapter(
+        repos: [
+          {'full_name': 'ckd/daymark', 'visibility': 'public'},
+          {'full_name': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        commitsByRepo: {
+          'ckd/daymark': [_ghCommit(id: 'a1')],
+          'ckd/shipyard': [_ghCommit(id: 'b1')],
+        },
+      );
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitHubProvider(dio: dio);
+      final result = await provider.fetchCommits(
+        date: DateTime(2026, 8, 11),
+        instance: CodeInstance(
+          id: 'gh1',
+          providerType: 'github',
+          baseUrl: 'https://api.github.com',
+        ),
+        token: 'test-token',
+        author: 'chenkaidi',
+      );
+      expect(result.map((c) => c.sha), ['a1', 'b1']);
+    });
+
+    test('selectedRepos 只拉勾选仓库的提交，未勾选仓库不发请求', () async {
+      final adapter = _FakeAdapter(
+        repos: [
+          {'full_name': 'ckd/daymark', 'visibility': 'public'},
+          {'full_name': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        commitsByRepo: {
+          'ckd/daymark': [_ghCommit(id: 'a1')],
+          'ckd/shipyard': [_ghCommit(id: 'b1')],
+        },
+      );
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitHubProvider(dio: dio);
+      final result = await provider.fetchCommits(
+        date: DateTime(2026, 8, 11),
+        instance: CodeInstance(
+          id: 'gh1',
+          providerType: 'github',
+          baseUrl: 'https://api.github.com',
+          selectedRepos: const ['ckd/daymark'],
+        ),
+        token: 'test-token',
+        author: 'chenkaidi',
+      );
+      expect(result.map((c) => c.sha), ['a1'],
+          reason: '只并入勾选的 ckd/daymark');
+      final commitPaths = adapter.requests
+          .where((r) => r.$1.contains('/commits'))
+          .map((r) {
+        final segs = r.$1.split('/');
+        return '${segs[segs.length - 3]}/${segs[segs.length - 2]}';
+      }).toList();
+      expect(commitPaths, ['ckd/daymark'],
+          reason: '未勾选的 ckd/shipyard 不应发起提交请求');
+    });
+
+    test('勾选仓库不在仓库列表中（无权限/已删除）→ 跳过不报错', () async {
+      final adapter = _FakeAdapter(repos: [
+        {'full_name': 'ckd/daymark', 'visibility': 'public'},
+      ]);
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitHubProvider(dio: dio);
+      final result = await provider.fetchCommits(
+        date: DateTime(2026, 8, 11),
+        instance: CodeInstance(
+          id: 'gh1',
+          providerType: 'github',
+          baseUrl: 'https://api.github.com',
+          selectedRepos: const ['ckd/ghost'],
+        ),
+        token: 'test-token',
+        author: 'chenkaidi',
+      );
+      expect(result, isEmpty);
+    });
+
+    test('fetchCommitAuthors 按 selectedRepos 过滤仓库（与采集同源）', () async {
+      final adapter = _FakeAdapter(
+        repos: [
+          {'full_name': 'ckd/daymark', 'visibility': 'public'},
+          {'full_name': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        commitsByRepo: {
+          'ckd/daymark': [_ghCommit(id: 'a1', name: 'chenkaidi')],
+          'ckd/shipyard': [_ghCommit(id: 'b1', name: 'lisi')],
+        },
+      );
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitHubProvider(dio: dio);
+      final authors = await provider.fetchCommitAuthors(
+        instance: CodeInstance(
+          id: 'gh1',
+          providerType: 'github',
+          baseUrl: 'https://api.github.com',
+          selectedRepos: const ['ckd/shipyard'],
+        ),
+        token: 'test-token',
+      );
+      expect(authors.map((a) => a.key), ['lisi'],
+          reason: '只从勾选的 ckd/shipyard 拉作者');
+    });
+  });
 }

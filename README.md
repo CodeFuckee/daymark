@@ -13,7 +13,7 @@ Implemented based on the design in [DESIGN.md](DESIGN.md).
 ## Features
 
 - **Quick notes**: global hotkey (default `Ctrl/Cmd+Shift+L`) pops up a small window anytime; press Enter to save
-- **Auto collection**: GitLab/GitHub commits, directory file changes, and meeting audio transcripts collected automatically
+- **Auto collection**: GitLab/GitHub commits, directory file changes, and meeting audio transcripts collected automatically; per code instance you can pick which repositories' commits are merged into the daily report (issue #31)
 - **AI summarization**: dynamic provider list (Claude / DeepSeek / Ollama / OpenAI-compatible; cc-switch-style "add provider" flow, issue #25) with automatic fallback; the add-provider dialog can fetch the model list via the provider's official API and pick from a dropdown (issue #27)
 - **Auto update**: checks for new releases at startup, downloads in the background and notifies; the update completes automatically on app restart
 - **About section**: settings page shows version, build time, OS and other diagnostics with one-click copy for bug reports

@@ -42,12 +42,19 @@ class GitLabProvider implements CodeProvider {
       },
       authHeader: auth,
     );
+    // 并入日报的仓库白名单（issue #31）：配置了 selectedRepos 时只拉
+    // 勾选的仓库；空列表 = 全部仓库（老配置向后兼容）
+    final selected = filterReposBySelection(
+      projects,
+      instance.selectedRepos,
+      (p) => (p['path_with_namespace'] as String? ?? p['path'] as String? ?? ''),
+    );
 
     // 2. 多项目并行拉 commit
     // 主作者 + 额外账户合并为过滤串（issue #20）
     final authorFilter = mergeAuthorFilter(author, extraAuthors);
     final results = await Future.wait(
-      projects.map(
+      selected.map(
           (p) => _fetchProjectCommits(p, base, token, date, instance, authorFilter)),
     );
     return results.expand((e) => e).toList();
@@ -158,9 +165,16 @@ class GitLabProvider implements CodeProvider {
       },
       authHeader: auth,
     );
+    // 并入日报的仓库白名单（issue #31）：作者拉取与采集同源——用户限定
+    // 了并入仓库范围后，作者也只从这些仓库拉取
+    final selected = filterReposBySelection(
+      projects,
+      instance.selectedRepos,
+      (p) => (p['path_with_namespace'] as String? ?? p['path'] as String? ?? ''),
+    );
 
     // 2. 多项目并行拉提交作者
-    final results = await Future.wait(projects.map(
+    final results = await Future.wait(selected.map(
         (p) => _fetchProjectAuthors(p, base, token, instance, maxCommitsPerRepo)));
     final seen = <String>{};
     return results
@@ -222,5 +236,36 @@ class GitLabProvider implements CodeProvider {
       }
       rethrow;
     }
+  }
+
+  @override
+  Future<List<String>> fetchRepositories({
+    required CodeInstance instance,
+    required String token,
+  }) async {
+    final base = _apiBase(instance.baseUrl);
+    // 项目列表（分页，与 fetchCommits 同源）：membership=true 拉我参与的
+    // 项目，返回 path_with_namespace（回退 path）作为勾选值——与采集时
+    // Commit.project 的取值一致，保证勾选必然命中采集过滤。
+    final projects = await paginate(
+      _dio,
+      '$base/projects',
+      query: (page) => {
+        'membership': true,
+        'simple': true,
+        'per_page': 100,
+        'page': page,
+      },
+      authHeader: () => 'Bearer $token',
+    );
+    final names = <String>{};
+    for (final p in projects) {
+      final path = p['path_with_namespace'] as String? ??
+          p['path'] as String? ??
+          '';
+      if (path.trim().isNotEmpty) names.add(path.trim());
+    }
+    final list = names.toList()..sort();
+    return list;
   }
 }

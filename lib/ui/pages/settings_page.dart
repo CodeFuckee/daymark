@@ -189,7 +189,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                   subtitle: Text(
                     '${instance.providerType} · ${instance.baseUrl}'
-                    '${instance.enabled ? '' : '（已禁用）'}',
+                    '${instance.enabled ? '' : '（已禁用）'}'
+                    '${instance.selectedRepos.isEmpty
+                        ? ''
+                        : ' · 已选 ${instance.selectedRepos.length} 个仓库'}',
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1006,6 +1009,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final filterCtrl = TextEditingController(text: instance.visibilityFilter);
     final tokenCtrl = TextEditingController(text: token);
     var type = instance.providerType;
+    // 并入日报的仓库勾选（issue #31）：编辑对话框内临时持有，点「选择
+    // 仓库」更新，点「保存」回写实例——与 type 等草稿状态同生命周期
+    var selectedRepos = List<String>.from(instance.selectedRepos);
     if (!mounted) return;
     final navigator = Navigator.of(context);
     await showDialog<void>(
@@ -1060,6 +1066,33 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       labelText: 'Token（存入系统密钥库）',
                     ),
                   ),
+                  // 仓库选择（issue #31）：勾选哪些仓库的提交并入日报；
+                  // 未选择 = 全部仓库（默认）
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          selectedRepos.isEmpty
+                              ? '并入日报的仓库：全部（默认）'
+                              : '并入日报的仓库：已选 ${selectedRepos.length} 个',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final picked = await _pickRepos(
+                            instance,
+                            selectedRepos,
+                          );
+                          if (picked != null) {
+                            setDialogState(() => selectedRepos = picked);
+                          }
+                        },
+                        icon: const Icon(Icons.storage_outlined, size: 18),
+                        label: const Text('选择仓库'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1083,6 +1116,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   defaultBranch: branchCtrl.text.trim(),
                   enabled: instance.enabled,
                   visibilityFilter: filterCtrl.text.trim(),
+                  // 并入日报的仓库勾选（issue #31）
+                  selectedRepos: selectedRepos,
                 );
                 final settingsService = ref.read(settingsServiceProvider);
                 await settingsService.setToken(
@@ -1107,6 +1142,193 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ],
         ),
       ),
+    );
+  }
+
+  /// 打开「选择仓库」勾选对话框（issue #31）：拉取 [instance] 的仓库列表，
+  /// 返回勾选集合（勾选值 ∪ 列表外已保留值）；取消返回 null 不修改草稿。
+  Future<List<String>?> _pickRepos(
+    CodeInstance instance,
+    List<String> initial,
+  ) async {
+    final controller = ref.read(appControllerProvider.notifier);
+    if (!mounted) return initial;
+    return showDialog<List<String>>(
+      context: context,
+      builder: (dialogContext) => _ReposPickerDialog(
+        fetch: () => controller.fetchRepositories(instance),
+        initial: initial,
+      ),
+    );
+  }
+}
+
+/// 仓库勾选对话框（issue #31）：打开即拉取实例的仓库列表；确定时返回
+/// 勾选集合（勾选值 ∪ 列表外已保留值——仓库无权限/已删除时不丢用户选择）。
+class _ReposPickerDialog extends StatefulWidget {
+  final Future<List<String>> Function() fetch;
+
+  /// 当前已选仓库（用于初始勾选与列表外保留）
+  final List<String> initial;
+
+  const _ReposPickerDialog({required this.fetch, required this.initial});
+
+  @override
+  State<_ReposPickerDialog> createState() => _ReposPickerDialogState();
+}
+
+class _ReposPickerDialogState extends State<_ReposPickerDialog> {
+  bool _loading = true;
+  String? _error;
+  List<String> _repos = const [];
+
+  /// 勾选的仓库集合
+  final Set<String> _checked = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final repos = await widget.fetch();
+      if (!mounted) return;
+      final initialSet = widget.initial.toSet();
+      setState(() {
+        _repos = repos;
+        _checked
+          ..clear()
+          ..addAll(repos.where(initialSet.contains));
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '拉取失败：$e';
+      });
+    }
+  }
+
+  void _confirm() {
+    // 已选但不在拉取列表里的值保留（列表内以勾选为准）
+    final fetchedSet = _repos.toSet();
+    final manual = widget.initial.where((e) => !fetchedSet.contains(e)).toList();
+    final picked = _repos.where(_checked.contains).toList();
+    Navigator.pop(context, [...manual, ...picked]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget content;
+    if (_loading) {
+      content = const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 12),
+          Text('正在拉取仓库列表…'),
+        ],
+      );
+    } else if (_error != null) {
+      content = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(width: 8),
+              Flexible(child: Text(_error!)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+            label: const Text('重试'),
+          ),
+        ],
+      );
+    } else if (_repos.isEmpty) {
+      content = const Text('未拉取到任何仓库（请确认 Token 有权限访问项目）');
+    } else {
+      final allChecked = _checked.length == _repos.length;
+      content = SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('共 ${_repos.length} 个仓库'),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => setState(() {
+                    if (allChecked) {
+                      _checked.clear();
+                    } else {
+                      _checked
+                        ..clear()
+                        ..addAll(_repos);
+                    }
+                  }),
+                  child: Text(allChecked ? '全不选' : '全选'),
+                ),
+              ],
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final repo in _repos)
+                    CheckboxListTile(
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(repo),
+                      value: _checked.contains(repo),
+                      onChanged: (v) => setState(() {
+                        if (v == true) {
+                          _checked.add(repo);
+                        } else {
+                          _checked.remove(repo);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return AlertDialog(
+      title: const Text('选择并入日报的仓库'),
+      content: content,
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        if (!_loading && _error == null && _repos.isNotEmpty)
+          FilledButton(onPressed: _confirm, child: const Text('确定')),
+      ],
     );
   }
 }

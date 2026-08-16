@@ -23,6 +23,26 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Added
 
+- Repository selection in code instance settings (issue #31): each GitLab/GitHub
+  code instance now supports picking which repositories' commits are merged into
+  the daily report — the "edit code instance" dialog gains a "Select repositories"
+  entry that pulls the instance's repository list with its configured token
+  (GitLab: membership project list via path_with_namespace; GitHub:
+  owner+collaborator repos via full_name) and shows checkboxes to select;
+  the instance card shows "N repositories selected"; an empty selection means
+  all repositories (backward compatible with old configs — the key is absent
+  in old settings.json). Both collection (`fetchCommits`) and the commit-author
+  pull (`fetchCommitAuthors`) filter by the selection, so only checked
+  repositories are queried; repositories not in the pulled list (no permission /
+  deleted) are skipped without breaking the rest; pull failures show an error
+  with a retry button in the dialog. Added 23 tests: model serialization
+  round-trip / missing-key fallback / empty-list semantics, GitLab+GitHub
+  `fetchRepositories` and selection filtering (empty = all, only selected repos
+  queried, missing repos skipped, author pull filtered the same way),
+  AppController token-missing / Dio-failure handling, and settings-page widget
+  tests (pick & save, default-all, existing-selection echo, failure retry,
+  empty-list hint, out-of-list preservation).
+
 - Daily-report editor switched to WYSIWYG mode (issue #30, round 3, plan A
   confirmed by the user): introduced `flutter_smooth_markdown` 0.8.1
   (replacing and removing `flutter_markdown`), default formatted mode —

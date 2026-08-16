@@ -331,6 +331,32 @@ class AppController extends Notifier<AppState> {
     return authors;
   }
 
+  /// 拉取单个代码实例的仓库列表（issue #31）：设置页「选择仓库」对话框
+  /// 的数据源。按实例 id 读取密钥库中的 token；未配置 Token 时抛
+  /// [CodeProviderException]（与 fetchCommitAuthors 的排障语义一致）。
+  /// 返回仓库路径（GitLab: group/project；GitHub: owner/repo），与采集时
+  /// Commit.project 的取值一致，保证勾选必然命中采集过滤。
+  Future<List<String>> fetchRepositories(CodeInstance instance) async {
+    final token = await settingsService.getToken(instance.id);
+    if (token == null || token.isEmpty) {
+      final label = instance.name.isEmpty ? instance.baseUrl : instance.name;
+      throw CodeProviderException('$label：未配置 Token');
+    }
+    final CodeProvider provider = providerFactory?.call(instance.providerType) ??
+        (instance.providerType == 'github'
+            ? GitHubProvider()
+            : GitLabProvider());
+    try {
+      return await provider.fetchRepositories(
+        instance: instance,
+        token: token,
+      );
+    } catch (e) {
+      final reason = e is DioException ? friendlyDioMessage(e) : '$e';
+      throw CodeProviderException(reason);
+    }
+  }
+
   /// 快捷添加文件排除项（issue #18）：把 [path] 追加进 excludePatterns 并
   /// 持久化。排除规则是子串匹配（与 Rust 侧 is_excluded 一致），已命中现有
   /// 规则的路径不再重复添加。保存走 [saveSettings]，watcher 会在后台按新

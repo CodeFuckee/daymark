@@ -96,6 +96,7 @@ Future<List<dynamic>> _fetch({
   required List<Map<String, dynamic>> commits,
   required String author,
   List<String> extraAuthors = const [],
+  List<String> selectedRepos = const [],
 }) async {
   final dio = Dio();
   dio.httpClientAdapter = _FakeAdapter(commits: commits);
@@ -106,6 +107,7 @@ Future<List<dynamic>> _fetch({
       id: 'gl1',
       providerType: 'gitlab',
       baseUrl: 'https://home.chenkaidi.top:509',
+      selectedRepos: selectedRepos,
     ),
     token: 'test-token',
     author: author,
@@ -312,6 +314,140 @@ void main() {
           .where((r) => r.$1.contains('/repository/commits'))
           .toList();
       expect(commitRequests.single.$2['ref_name'], 'main');
+    });
+  });
+
+  group('GitLabProvider 仓库选择（issue #31）', () {
+    test('fetchRepositories 返回 membership 项目列表：path_with_namespace 优先、回退 path、排序', () async {
+      final adapter = _FakeAdapter(projects: [
+        {'id': 2, 'path_with_namespace': 'ckd/shipyard', 'visibility': 'public'},
+        {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+        {'id': 3, 'path': 'legacy', 'visibility': 'private'},
+      ]);
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitLabProvider(dio: dio);
+      final repos = await provider.fetchRepositories(
+        instance: CodeInstance(
+          id: 'gl1',
+          providerType: 'gitlab',
+          baseUrl: 'https://git.example.com',
+        ),
+        token: 'test-token',
+      );
+      expect(repos, ['ckd/daymark', 'ckd/shipyard', 'legacy'],
+          reason: '按名排序，path_with_namespace 缺失时回退 path');
+      final projectRequests =
+          adapter.requests.where((r) => r.$1.endsWith('/projects')).toList();
+      expect(projectRequests, isNotEmpty,
+          reason: '与采集同源：membership=true 拉项目列表');
+      expect(projectRequests.first.$2['membership'], isTrue);
+    });
+
+    test('复现 #31：selectedRepos 为空（老配置）→ 拉取全部项目提交', () async {
+      final adapter = _FakeAdapter(
+        projects: [
+          {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+          {'id': 2, 'path_with_namespace': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        commitsByProject: {
+          'ckd/daymark': [_commit(id: 'a1', authorName: 'chenkaidi')],
+          'ckd/shipyard': [_commit(id: 'b1', authorName: 'chenkaidi')],
+        },
+      );
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitLabProvider(dio: dio);
+      final result = await provider.fetchCommits(
+        date: DateTime(2026, 8, 11),
+        instance: CodeInstance(
+          id: 'gl1',
+          providerType: 'gitlab',
+          baseUrl: 'https://git.example.com',
+        ),
+        token: 'test-token',
+        author: 'chenkaidi',
+      );
+      expect(result.map((c) => c.sha), ['a1', 'b1']);
+    });
+
+    test('selectedRepos 只拉勾选仓库的提交，未勾选仓库不发请求', () async {
+      final adapter = _FakeAdapter(
+        projects: [
+          {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+          {'id': 2, 'path_with_namespace': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        commitsByProject: {
+          'ckd/daymark': [_commit(id: 'a1', authorName: 'chenkaidi')],
+          'ckd/shipyard': [_commit(id: 'b1', authorName: 'chenkaidi')],
+        },
+      );
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitLabProvider(dio: dio);
+      final result = await provider.fetchCommits(
+        date: DateTime(2026, 8, 11),
+        instance: CodeInstance(
+          id: 'gl1',
+          providerType: 'gitlab',
+          baseUrl: 'https://git.example.com',
+          selectedRepos: const ['ckd/daymark'],
+        ),
+        token: 'test-token',
+        author: 'chenkaidi',
+      );
+      expect(result.map((c) => c.sha), ['a1'],
+          reason: '只并入勾选的 ckd/daymark');
+      final commitPaths = adapter.requests
+          .where((r) => r.$1.contains('/repository/commits'))
+          .map((r) => Uri.decodeComponent(
+              r.$1.split('/')[r.$1.split('/').indexOf('projects') + 1]))
+          .toList();
+      expect(commitPaths, ['ckd/daymark'],
+          reason: '未勾选的 ckd/shipyard 不应发起提交请求');
+    });
+
+    test('勾选仓库不在项目列表中（无权限/已删除）→ 跳过不报错', () async {
+      final adapter = _FakeAdapter(projects: [
+        {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+      ]);
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitLabProvider(dio: dio);
+      final result = await provider.fetchCommits(
+        date: DateTime(2026, 8, 11),
+        instance: CodeInstance(
+          id: 'gl1',
+          providerType: 'gitlab',
+          baseUrl: 'https://git.example.com',
+          selectedRepos: const ['ckd/ghost'],
+        ),
+        token: 'test-token',
+        author: 'chenkaidi',
+      );
+      expect(result, isEmpty);
+    });
+
+    test('fetchCommitAuthors 按 selectedRepos 过滤仓库（与采集同源）', () async {
+      final adapter = _FakeAdapter(
+        projects: [
+          {'id': 1, 'path_with_namespace': 'ckd/daymark', 'visibility': 'public'},
+          {'id': 2, 'path_with_namespace': 'ckd/shipyard', 'visibility': 'public'},
+        ],
+        commitsByProject: {
+          'ckd/daymark': [_commit(id: 'a1', authorName: 'chenkaidi')],
+          'ckd/shipyard': [_commit(id: 'b1', authorName: 'lisi')],
+        },
+      );
+      final dio = Dio()..httpClientAdapter = adapter;
+      final provider = GitLabProvider(dio: dio);
+      final authors = await provider.fetchCommitAuthors(
+        instance: CodeInstance(
+          id: 'gl1',
+          providerType: 'gitlab',
+          baseUrl: 'https://git.example.com',
+          selectedRepos: const ['ckd/shipyard'],
+        ),
+        token: 'test-token',
+      );
+      expect(authors.map((a) => a.key), ['lisi'],
+          reason: '只从勾选的 ckd/shipyard 拉作者');
     });
   });
 }

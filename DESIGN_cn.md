@@ -201,7 +201,7 @@ CodeProvider
 └── GitHubProvider   # REST API v3，支持多账号
 ```
 
-- **配置**（设置页）：实例名、base_url、token（存密钥库）、默认分支、可见性过滤
+- **配置**（设置页）：实例名、base_url、token（存密钥库）、默认分支、可见性过滤、仓库选择（issue #31：按实例勾选哪些仓库的提交并入日报；空 = 全部仓库，向后兼容）
 - **拉取**：按自然日 `since=YYYY-MM-DD+08:00` / `until` 拉 commit，多项目并行，按 sha 去重（沿用 collect.py 逻辑）
 - **时区**：固定 +08:00 自然日（沿用现有陷阱说明）
 - 提供按日期查询的素材：`List<Commit> forDate(date)`
@@ -276,7 +276,7 @@ CodeProvider
 | 分组 | 项 |
 |---|---|
 | 日志 | 根目录选择、作者名、并入代码提交的账户（支持从代码仓库拉取提交作者勾选并入，issue #20；拉取走设置草稿实例列表，新增实例未保存也能拉取，issue #20 第三轮）、时区 |
-| 代码 | GitLab/GitHub 实例列表（增删改）、token、分支、过滤 |
+| 代码 | GitLab/GitHub 实例列表（增删改）、token、分支、过滤、仓库选择（issue #31：按实例勾选哪些仓库的提交并入日报；空 = 全部） |
 | 目录监控 | 监控目录列表、排除规则 |
 | 音频 | 音频目录、转录接口 base_url/key/模型 |
 | AI | 供应商动态列表（可增删改，参考 cc-switch：「添加供应商」弹出页面选择类型，支持 Claude / DeepSeek / Ollama / OpenAI 兼容；issue #25）+ 主供应商/备选降级/会议禁用选择、生成语气偏好 |
