@@ -39,19 +39,36 @@ abstract class LLMProvider {
 
   /// 连通性检查（设置页测试按钮）
   Future<bool> ping();
+
+  /// 拉取供应商官方模型列表（设置页「获取模型」按钮，issue #27）。
+  ///
+  /// 各类型官方模型列表接口：
+  /// - claude：Anthropic `GET /v1/models`
+  /// - deepseek / openai：OpenAI 兼容协议 `GET /v1/models`
+  /// - ollama：本地 `GET /api/tags`
+  Future<List<String>> listModels();
 }
 
-/// 按 baseUrl 拼接路径，兼容"已带 /v1"与"未带"两种配置
+/// 按 baseUrl 拼接路径，兼容"已带 /v1"与"未带"两种配置。
+///
+/// 只检查**路径段**是否已含 /v1 或 /api（issue #27：'https://api.xxx.com'
+/// 这类域名会命中 '/api' 子串导致 /v1 被漏拼——官方接口要求 /v1 前缀）。
 String _apiUrl(String baseUrl, String suffix) {
   var base = baseUrl.trim();
   while (base.endsWith('/')) {
     base = base.substring(0, base.length - 1);
   }
-  if (base.contains('/v1') || base.contains('/api')) {
+  final schemeEnd = base.indexOf('://');
+  final hostEnd = schemeEnd < 0 ? -1 : base.indexOf('/', schemeEnd + 3);
+  final path = hostEnd < 0 ? '' : base.substring(hostEnd);
+  if (path.contains('/v1') || path.contains('/api')) {
     return '$base$suffix';
   }
   return '$base/v1$suffix';
 }
+
+/// 去除 baseUrl 尾部斜杠（Ollama /api/tags 拼接避免双斜杠）
+String _trimTrailingSlash(String s) => s.replaceAll(RegExp(r'/+$'), '');
 
 /// Claude（Anthropic Messages API）
 class ClaudeProvider implements LLMProvider {
@@ -118,6 +135,25 @@ class ClaudeProvider implements LLMProvider {
       return false;
     }
   }
+
+  /// 官方模型列表接口：GET /v1/models（x-api-key 认证）
+  @override
+  Future<List<String>> listModels() async {
+    final resp = await _dio.get(
+      _apiUrl(baseUrl, '/models'),
+      options: Options(
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+      ),
+    );
+    final data = resp.data as Map<String, dynamic>;
+    return [
+      for (final m in (data['data'] as List? ?? []))
+        (m as Map<String, dynamic>)['id'] as String? ?? '',
+    ].where((id) => id.isNotEmpty).toList();
+  }
 }
 
 /// DeepSeek（OpenAI 兼容协议）
@@ -181,6 +217,20 @@ class DeepSeekProvider implements LLMProvider {
       return false;
     }
   }
+
+  /// 官方模型列表接口：GET /v1/models（Bearer 认证，OpenAI 兼容协议）
+  @override
+  Future<List<String>> listModels() async {
+    final resp = await _dio.get(
+      _apiUrl(baseUrl, '/models'),
+      options: Options(headers: {'Authorization': 'Bearer $apiKey'}),
+    );
+    final data = resp.data as Map<String, dynamic>;
+    return [
+      for (final m in (data['data'] as List? ?? []))
+        (m as Map<String, dynamic>)['id'] as String? ?? '',
+    ].where((id) => id.isNotEmpty).toList();
+  }
 }
 
 /// Ollama（本地）
@@ -237,6 +287,20 @@ class OllamaProvider implements LLMProvider {
     } catch (_) {
       return false;
     }
+  }
+
+  /// 官方模型列表接口：GET /api/tags（本地无需认证）
+  @override
+  Future<List<String>> listModels() async {
+    final resp = await _dio.get('${_trimTrailingSlash(baseUrl)}/api/tags');
+    final data = resp.data;
+    final map = data is String
+        ? jsonDecode(data) as Map<String, dynamic>
+        : data as Map<String, dynamic>;
+    return [
+      for (final m in (map['models'] as List? ?? []))
+        (m as Map<String, dynamic>)['name'] as String? ?? '',
+    ].where((name) => name.isNotEmpty).toList();
   }
 }
 
@@ -301,6 +365,20 @@ class OpenAICompatibleProvider implements LLMProvider {
       return false;
     }
   }
+
+  /// 官方模型列表接口：GET /v1/models（Bearer 认证，OpenAI 兼容协议）
+  @override
+  Future<List<String>> listModels() async {
+    final resp = await _dio.get(
+      _apiUrl(baseUrl, '/models'),
+      options: Options(headers: {'Authorization': 'Bearer $apiKey'}),
+    );
+    final data = resp.data as Map<String, dynamic>;
+    return [
+      for (final m in (data['data'] as List? ?? []))
+        (m as Map<String, dynamic>)['id'] as String? ?? '',
+    ].where((id) => id.isNotEmpty).toList();
+  }
 }
 
 /// 按配置创建主/备供应商
@@ -358,4 +436,44 @@ class LLMProviderFactory {
   /// 该供应商是否可用于会议素材（合规：设置可禁用第三方）
   static bool allowsMeeting(AiSettings ai, String providerId) =>
       ai.allowsMeeting(providerId);
+
+  /// 按表单原始配置创建实例（「获取模型」按钮用，issue #27：值来自编辑框、
+  /// 尚未保存到草稿，不能走 [create] 的 providerById 查找）。
+  static LLMProvider createFromConfig({
+    required String type,
+    required String baseUrl,
+    required String apiKey,
+    String model = '',
+  }) {
+    switch (type) {
+      case 'claude':
+        return ClaudeProvider(baseUrl: baseUrl, apiKey: apiKey, model: model);
+      case 'deepseek':
+        return DeepSeekProvider(baseUrl: baseUrl, apiKey: apiKey, model: model);
+      case 'ollama':
+        return OllamaProvider(baseUrl: baseUrl, model: model);
+      case 'openai':
+        return OpenAICompatibleProvider(
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          model: model,
+        );
+      default:
+        throw ArgumentError('unknown provider type: $type');
+    }
+  }
+}
+
+/// 通过供应商官方 API 拉取模型列表（设置页「获取模型」按钮，issue #27）。
+Future<List<String>> fetchProviderModels({
+  required String type,
+  required String baseUrl,
+  required String apiKey,
+}) async {
+  final provider = LLMProviderFactory.createFromConfig(
+    type: type,
+    baseUrl: baseUrl,
+    apiKey: apiKey,
+  );
+  return provider.listModels();
 }

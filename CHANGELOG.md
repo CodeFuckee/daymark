@@ -23,6 +23,20 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Added
 
+- "Fetch models" button in the add-provider dialog (issue #27): clicking it
+  pulls the model list via the provider's official API (Claude `GET /v1/models`,
+  DeepSeek / OpenAI-compatible `GET /v1/models`, Ollama `GET /api/tags`); on
+  success the model field below switches from a text input to a dropdown (with a
+  "manual input" toggle; a manually typed value not present in the list is kept
+  as an extra option); while fetching the button is disabled to prevent
+  duplicate/concurrent clicks; missing base_url/API key, API failures and empty
+  results all show a hint. Also fixed the `_apiUrl` path-joining bug: hosts like
+  `https://api.xxx.com` matched the '/api' substring and dropped the required
+  `/v1` prefix. Added 15 tests: 7 in `llm_provider_test.dart` (model-interface
+  parsing for the four provider types, empty list, auth failure, createFromConfig
+  type dispatch) + 8 in `settings_page_test.dart` (button shown, base_url/API key
+  validation, success switches to dropdown and saves the selection, failure hint,
+  empty-list hint, loading state disables the button, switch back to manual input)
 - Settings page AI providers are now a dynamic instance list (issue #25):
   cc-switch-style — clicking "Add provider" pops a page to pick the provider type
   (Claude / DeepSeek / Ollama / OpenAI-compatible; any number can be added, no

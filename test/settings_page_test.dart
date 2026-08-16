@@ -96,10 +96,17 @@ class _FakeController extends AppController {
   }
 }
 
-Widget _wrap(_FakeController controller) {
+Widget _wrap(
+  _FakeController controller, {
+  Future<List<String>> Function({
+    required String type,
+    required String baseUrl,
+    required String apiKey,
+  })? fetchModels,
+}) {
   return ProviderScope(
     overrides: [appControllerProvider.overrideWith(() => controller)],
-    child: const MaterialApp(home: SettingsPage()),
+    child: MaterialApp(home: SettingsPage(fetchProviderModels: fetchModels)),
   );
 }
 
@@ -786,6 +793,340 @@ void main() {
 
       expect(find.text('请先添加供应商'), findsOneWidget);
       expect(find.text('添加供应商'), findsOneWidget);
+    });
+  });
+
+  group('AI 供应商获取模型（issue #27）', () {
+    /// 打开「添加供应商」→ 选择 OpenAI 兼容类型 → 进入配置对话框
+    Future<void> openAddDialog(WidgetTester tester) async {
+      await tester.tap(find.text('添加供应商'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OpenAI 兼容'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('配置对话框显示获取模型按钮', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+
+      expect(find.text('获取模型'), findsOneWidget);
+      // 未拉取前模型字段保持文本输入（可手动填写）
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(TextField, '模型'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('未填 base_url 点击获取模型提示先填写', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+      // OpenAI 兼容类型默认预填官方 base_url，先清空再验证校验提示
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        '',
+      );
+      await tester.tap(find.text('获取模型'));
+      await tester.pump();
+
+      expect(find.text('请先填写 base_url 后再获取模型'), findsOneWidget);
+      // 模型字段仍为文本输入
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(TextField, '模型'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('未填 API Key（OpenAI 兼容）点击获取模型提示先填写', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(_wrap(controller));
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.tap(find.text('获取模型'));
+      await tester.pump();
+
+      expect(find.text('请先填写 API Key 后再获取模型'), findsOneWidget);
+    });
+
+    testWidgets('获取模型成功后面临模型下拉菜单并可保存选择', (tester) async {
+      AppSettings? saved;
+      final controller = _FakeController(onSave: (next) async => saved = next);
+      await tester.pumpWidget(
+        _wrap(
+          controller,
+          fetchModels: ({required type, required baseUrl, required apiKey}) async =>
+              ['model-a', 'model-b'],
+        ),
+      );
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+      final dialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, 'API Key'),
+        ),
+        'sk-groq',
+      );
+      await tester.tap(find.text('获取模型'));
+      await tester.pumpAndSettle();
+
+      // 拉取成功：模型字段变为下拉菜单，显示已获取数量
+      expect(find.text('已获取 2 个模型'), findsOneWidget);
+      expect(
+        find.descendant(of: dialog, matching: find.byType(DropdownButtonFormField<String>)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: dialog, matching: find.widgetWithText(TextField, '模型')),
+        findsNothing,
+      );
+
+      // 默认选中列表第一个 model-a，改为选择 model-b 后保存
+      await tester.tap(find.text('model-a'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('model-b').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      final added = saved?.ai.providers
+          .firstWhere((p) => p.type == 'openai' && p.name.isNotEmpty);
+      expect(added?.model, 'model-b');
+    });
+
+    testWidgets('获取模型失败提示错误且模型保持文本输入', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(
+        _wrap(
+          controller,
+          fetchModels: ({required type, required baseUrl, required apiKey}) async =>
+              throw Exception('bad key'),
+        ),
+      );
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+      final dialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, 'API Key'),
+        ),
+        'sk-bad',
+      );
+      await tester.tap(find.text('获取模型'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('获取模型失败'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, '模型'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('获取模型返回空列表提示检查配置', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(
+        _wrap(
+          controller,
+          fetchModels: ({required type, required baseUrl, required apiKey}) async => [],
+        ),
+      );
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+      final dialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, 'API Key'),
+        ),
+        'sk-groq',
+      );
+      await tester.tap(find.text('获取模型'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('未获取到模型列表，请检查 base_url 与 API Key'), findsOneWidget);
+      // 空列表：模型字段保持文本输入
+      expect(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, '模型'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('获取模型中按钮禁用并显示加载圈（重复/并发保护）', (tester) async {
+      final completer = Completer<List<String>>();
+      final controller = _FakeController();
+      await tester.pumpWidget(
+        _wrap(
+          controller,
+          fetchModels: ({required type, required baseUrl, required apiKey}) =>
+              completer.future,
+        ),
+      );
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+      final dialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, 'API Key'),
+        ),
+        'sk-groq',
+      );
+      await tester.tap(find.text('获取模型'));
+      await tester.pump();
+
+      // 拉取中：按钮禁用 + 显示加载圈
+      final button = tester.widget<OutlinedButton>(
+        find.ancestor(
+          of: find.text('获取模型'),
+          matching: find.bySubtype<OutlinedButton>(),
+        ),
+      );
+      expect(button.onPressed, isNull);
+      expect(
+        find.descendant(
+          of: dialog,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+
+      // 完成后：恢复按钮、下拉菜单出现
+      completer.complete(['model-a', 'model-b']);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: dialog, matching: find.byType(DropdownButtonFormField<String>)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('拉取后可切回手动输入模式', (tester) async {
+      final controller = _FakeController();
+      await tester.pumpWidget(
+        _wrap(
+          controller,
+          fetchModels: ({required type, required baseUrl, required apiKey}) async =>
+              ['model-a', 'model-b'],
+        ),
+      );
+      tester.view.physicalSize = const Size(900, 6000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+
+      await openAddDialog(tester);
+      final dialog = find.byType(AlertDialog);
+      await tester.enterText(
+        find.widgetWithText(
+          TextField,
+          'base_url（如 https://api.groq.com/openai/v1）',
+        ),
+        'https://api.groq.com/openai/v1',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, 'API Key'),
+        ),
+        'sk-groq',
+      );
+      await tester.tap(find.text('获取模型'));
+      await tester.pumpAndSettle();
+
+      // 切回手动输入：模型字段恢复为文本输入
+      await tester.tap(find.text('手动输入'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(TextField, '模型'),
+        ),
+        findsOneWidget,
+      );
     });
   });
 }

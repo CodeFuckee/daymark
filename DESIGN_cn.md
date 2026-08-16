@@ -329,6 +329,10 @@ class OpenAICompatibleProvider   // 任意 OpenAI 兼容服务（Groq/火山引�
   旧字段兼容降级
 - 设置页「添加供应商」参考 cc-switch：先弹出供应商类型选择页（Claude / DeepSeek /
   Ollama / OpenAI 兼容），再进入配置表单；默认预置三家，用户可添加任意数量
+- 配置表单内置「获取模型」按钮（issue #27）：点击通过供应商官方模型列表接口
+  （Claude `GET /v1/models`、DeepSeek/OpenAI 兼容 `GET /v1/models`、Ollama
+  `GET /api/tags`）拉取模型，成功后模型字段变为下拉菜单选择，可切回手动输入；
+  拉取中按钮禁用防重复点击，base_url/API Key 缺失、接口失败、空列表均有提示
 - 统一接口，提示词模板与供应商解耦
 - 失败降级：主供应商不可用 → 自动切换备选（设置里配置优先级）
 - 敏感内容策略：会议素材默认走 Ollama/DeepSeek 可在设置中锁定（越秀会议内容属于公司数据，上传第三方 API 存在合规风险，设置页提供"会议内容禁用 Claude"选项）

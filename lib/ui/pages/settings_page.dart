@@ -8,13 +8,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ai/llm_provider.dart';
 import '../../core/about/about_info.dart';
 import '../../core/models/material.dart';
 import '../../core/models/settings.dart';
 import '../app_controller.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({super.key, this.fetchProviderModels});
+
+  /// 「获取模型」按钮的模型拉取实现（测试注入用；为空时走供应商官方 API）。
+  final Future<List<String>> Function({
+    required String type,
+    required String baseUrl,
+    required String apiKey,
+  })? fetchProviderModels;
 
   @override
   ConsumerState<SettingsPage> createState() => _SettingsPageState();
@@ -724,6 +732,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   /// 编辑/新增 AI 供应商配置（新增时 id 已由 [._addAiProvider] 生成）
+  ///
+  /// issue #27：对话框内新增「获取模型」按钮——点击后通过供应商官方 API 拉取
+  /// 模型列表，模型字段由文本输入变为下拉菜单选择（支持切回手动输入）。
   Future<void> _editAiProvider(AiProvider provider) async {
     final nameCtrl = TextEditingController(text: provider.name);
     final baseCtrl = TextEditingController(text: provider.baseUrl);
@@ -732,6 +743,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (!mounted) return;
     final navigator = Navigator.of(context);
     final isNew = _draft.ai.providerById(provider.id) == null;
+    // issue #27：拉取到的官方模型列表（null 表示尚未拉取，保持手动输入）
+    List<String>? fetchedModels;
+    // 拉取中：按钮禁用并显示加载圈，防止重复/并发点击
+    var fetching = false;
+    // 拉取后下拉菜单与手动输入两种模式的切换
+    var manualMode = false;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -763,10 +780,133 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       obscureText: true,
                       decoration: const InputDecoration(labelText: 'API Key'),
                     ),
-                  TextField(
-                    controller: modelCtrl,
-                    decoration: const InputDecoration(labelText: '模型'),
+                  // issue #27：「获取模型」按钮——通过供应商官方 API 拉取模型列表，
+                  // 成功后下方模型选项变为下拉菜单
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: fetching
+                            ? null
+                            : () async {
+                                final base = baseCtrl.text.trim();
+                                if (base.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('请先填写 base_url 后再获取模型'),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                if (AiProviderType.needsApiKey(provider.type) &&
+                                    keyCtrl.text.trim().isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('请先填写 API Key 后再获取模型'),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                setDialogState(() => fetching = true);
+                                try {
+                                  final models = await (widget
+                                              .fetchProviderModels ??
+                                          fetchProviderModels)(
+                                    type: provider.type,
+                                    baseUrl: base,
+                                    apiKey: keyCtrl.text.trim(),
+                                  );
+                                  if (!context.mounted) return;
+                                  setDialogState(() {
+                                    fetching = false;
+                                    if (models.isEmpty) {
+                                      // 空列表：保持手动输入并提示检查配置
+                                      fetchedModels = null;
+                                    } else {
+                                      fetchedModels = models;
+                                      manualMode = false;
+                                      // 当前输入为空时默认选中列表第一个，
+                                      // 保证下拉框有可选项
+                                      if (modelCtrl.text.trim().isEmpty) {
+                                        modelCtrl.text = models.first;
+                                      }
+                                    }
+                                  });
+                                  if (models.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          '未获取到模型列表，请检查 base_url 与 API Key',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (!context.mounted) return;
+                                  setDialogState(() => fetching = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('获取模型失败：$e')),
+                                  );
+                                }
+                              },
+                        icon: fetching
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh, size: 18),
+                        label: const Text('获取模型'),
+                      ),
+                      if (fetchedModels != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Text(
+                            '已获取 ${fetchedModels!.length} 个模型',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      const Spacer(),
+                      if (fetchedModels != null && !manualMode)
+                        TextButton(
+                          onPressed: () =>
+                              setDialogState(() => manualMode = true),
+                          child: const Text('手动输入'),
+                        ),
+                    ],
                   ),
+                  // issue #27：拉取成功后模型选项变为下拉菜单（可切回手动输入）
+                  if (fetchedModels != null && !manualMode)
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(
+                        'model-dropdown-${fetchedModels!.join(',')}',
+                      ),
+                      initialValue: _modelDropdownValue(
+                        fetchedModels!,
+                        modelCtrl.text.trim(),
+                      ),
+                      decoration: const InputDecoration(labelText: '模型'),
+                      items: [
+                        for (final m in _modelDropdownItems(
+                          fetchedModels!,
+                          modelCtrl.text.trim(),
+                        ))
+                          DropdownMenuItem(
+                            value: m,
+                            child: Text(m, overflow: TextOverflow.ellipsis),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) {
+                          modelCtrl.text = v;
+                          setDialogState(() {});
+                        }
+                      },
+                    )
+                  else
+                    TextField(
+                      controller: modelCtrl,
+                      decoration: const InputDecoration(labelText: '模型'),
+                    ),
                 ],
               ),
             ),
@@ -1149,6 +1289,18 @@ class _CommitAuthorsDialogState extends State<_CommitAuthorsDialog> {
     );
   }
 }
+
+/// 模型下拉菜单选项（issue #27）：官方模型列表 + 当前手动输入但不在列表中的
+/// 值（防止拉取后用户手动输入的值丢失，可继续选择该自定义值）。
+List<String> _modelDropdownItems(List<String> fetched, String current) => [
+  ...fetched,
+  if (current.isNotEmpty && !fetched.contains(current)) current,
+];
+
+/// 模型下拉菜单当前值（issue #27）：优先保留当前输入，否则选列表第一个
+/// （保证 initialValue 必在 items 中，避免下拉框悬空值）。
+String _modelDropdownValue(List<String> fetched, String current) =>
+    fetched.contains(current) ? current : fetched.first;
 
 /// 供应商类型选择页（issue #25：参考 cc-switch——点击「添加供应商」后先
 /// 弹出此页选择供应商类型，再进入配置表单）。

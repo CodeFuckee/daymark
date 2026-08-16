@@ -38,6 +38,17 @@
 
 ### 新增
 
+- 设置页添加供应商对话框新增「获取模型」按钮（issue #27）：点击后通过供应商
+  官方 API 拉取模型列表（Claude `GET /v1/models`、DeepSeek/OpenAI 兼容
+  `GET /v1/models`、Ollama `GET /api/tags`），成功后下方模型选项由文本输入
+  变为下拉菜单选择（可切回手动输入，手动输入值不在列表中时保留为可选项）；
+  拉取中按钮禁用防重复/并发点击；base_url/API Key 未填写、接口失败、返回空
+  列表均有提示。顺带修复 `_apiUrl` 路径拼接缺陷：`https://api.xxx.com`
+  这类域名会命中 '/api' 子串导致漏拼 `/v1` 前缀（官方接口要求 `/v1`）。
+  新增测试 15 个：`llm_provider_test.dart` 7 个（四类供应商模型接口解析、
+  空列表、鉴权失败、createFromConfig 类型分发）+ `settings_page_test.dart`
+  8 个（按钮展示、base_url/API Key 校验、拉取成功转下拉并可保存选择、失败
+  提示、空列表提示、拉取中禁用、切回手动输入）
 - 设置页 AI 供应商改为动态实例列表（issue #25）：参考 cc-switch 设计，点击
   「添加供应商」弹出页面选择供应商类型（Claude / DeepSeek / Ollama / OpenAI
   兼容，可添加任意数量，不再固定三家），再填写名称/base_url/API Key/模型加入

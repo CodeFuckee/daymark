@@ -337,6 +337,12 @@ class OpenAICompatibleProvider   // any OpenAI-compatible service (Groq/Volcano/
 - Settings page "Add provider" follows cc-switch: first a provider-type selection page
   (Claude / DeepSeek / Ollama / OpenAI-compatible), then a configuration form; the
   three defaults are pre-seeded and users can add any number of providers
+- The configuration form has a "Fetch models" button (issue #27): clicking it
+  pulls the model list from the provider's official models endpoint (Claude
+  `GET /v1/models`, DeepSeek / OpenAI-compatible `GET /v1/models`, Ollama
+  `GET /api/tags`); on success the model field becomes a dropdown, with a manual
+  input toggle; the button is disabled while fetching, and missing base_url/API
+  key, API failures and empty results all show a hint
 - Unified interface, prompt templates decoupled from providers
 - Failure fallback: main provider unavailable → automatically switch to fallbacks (priority configured in settings)
 - Sensitive-content policy: meeting material defaults to Ollama/DeepSeek and can be locked in settings (Yuexiu meeting content is company data; uploading to third-party APIs is a compliance risk; the settings page offers a "disable Claude for meeting content" option)
