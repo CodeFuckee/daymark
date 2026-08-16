@@ -26,12 +26,40 @@ class EditorPage extends ConsumerStatefulWidget {
 class _EditorPageState extends ConsumerState<EditorPage> {
   late final TextEditingController _controller;
   bool _dirty = false;
+  // issue #30：左右分栏同步滚动——左侧源码 / 右侧预览各持一个滚动控制器，
+  // 任一侧滚动时按「相对位置比例」同步另一侧（两侧内容高度不同，像素同步
+  // 会错位）；_syncing 防止同步跳转触发反向再同步造成回环
+  late final ScrollController _leftScrollController;
+  late final ScrollController _rightScrollController;
+  bool _syncing = false;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialContent ?? '');
+    _leftScrollController = ScrollController()
+      ..addListener(() => _syncScroll(_leftScrollController, _rightScrollController));
+    _rightScrollController = ScrollController()
+      ..addListener(() => _syncScroll(_rightScrollController, _leftScrollController));
     _loadExisting();
+  }
+
+  /// 双向比例同步：source 滚动时按 已滚动比例 = offset / maxScrollExtent
+  /// 把 target 跳到相同比例位置。任一侧不可滚动（内容不足一屏，
+  /// maxScrollExtent <= 0）时不做同步，避免除零与无意义跳转。
+  void _syncScroll(ScrollController source, ScrollController target) {
+    if (_syncing) return;
+    if (!source.hasClients || !target.hasClients) return;
+    final srcMax = source.position.maxScrollExtent;
+    final tgtMax = target.position.maxScrollExtent;
+    if (srcMax <= 0 || tgtMax <= 0) return;
+    _syncing = true;
+    try {
+      final ratio = source.offset / srcMax;
+      target.jumpTo(ratio * tgtMax);
+    } finally {
+      _syncing = false;
+    }
   }
 
   Future<void> _loadExisting() async {
@@ -52,6 +80,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   @override
   void dispose() {
     _controller.dispose();
+    _leftScrollController.dispose();
+    _rightScrollController.dispose();
     super.dispose();
   }
 
@@ -149,7 +179,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                   children: [
                     SizedBox(
                       width: split,
+                      // key 供测试定位左侧滚动容器
                       child: SingleChildScrollView(
+                        key: const ValueKey('editor-left-scroll'),
+                        controller: _leftScrollController,
                         child: TextField(
                           controller: _controller,
                           maxLines: null,
@@ -171,6 +204,7 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                       child: Markdown(
                         data: _controller.text,
                         padding: const EdgeInsets.all(12),
+                        controller: _rightScrollController,
                       ),
                     ),
                   ],

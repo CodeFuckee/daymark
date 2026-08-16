@@ -261,7 +261,7 @@ CodeProvider
 
 ### 5.7 编辑器
 
-- 简易内置：`TextField`（等宽字体）+ flutter_markdown 预览分栏（左右 / Tab）
+- 简易内置：`TextField`（等宽字体）+ flutter_markdown 预览分栏（左右 / Tab）；左右分栏滚动同步——按滚动比例对齐源码与预览位置（issue #30）
 - 行号、Markdown 语法高亮（简易正则高亮，不引重型编辑器）
 - "用系统编辑器打开"按钮 → `OpenFile` 定位 + 系统默认应用打开 md
 - 定稿按钮 → 落盘 + 归档（从"草稿"态进入"已定稿"）

@@ -23,6 +23,17 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Added
 
+- Editor split view synchronized scrolling (issue #30): in the daily report
+  viewing page, the left monospace source pane and the right Markdown preview
+  pane stay in sync when either side scrolls — the follower jumps to the same
+  relative position (scroll ratio), since the two panes have different content
+  heights and pixel-syncing would drift; when either side cannot scroll
+  (content shorter than one viewport) the other side stays put; a re-entrancy
+  guard prevents the sync jump from bouncing back into an infinite loop.
+  Added 5 widget tests in `editor_page_sync_scroll_test.dart` (left→right ratio
+  sync, right→left reverse sync, re-entrancy guard, short content, empty
+  content).
+
 - Auto-popup restart dialog after an update download completes (issue #29):
   after clicking "Check for updates" (or a startup auto-check) finds a new
   version, the latest package is downloaded in the background (sha256

@@ -267,7 +267,7 @@ Generation is **re-entrant**: the draft can be regenerated after materials chang
 
 ### 5.7 Editor
 
-- Simple built-in: `TextField` (monospace font) + flutter_markdown preview split (left/right or tabs)
+- Simple built-in: `TextField` (monospace font) + flutter_markdown preview split (left/right or tabs); the two panes scroll in sync by relative-position ratio, keeping source and preview aligned (issue #30)
 - Line numbers, Markdown syntax highlighting (simple regex highlighting; no heavy editor)
 - "Open with system editor" button → `OpenFile` locates the file and opens it in the system default app
 - Finalize button → write to disk + archive (from "draft" to "finalized")
