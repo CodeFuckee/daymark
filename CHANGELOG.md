@@ -77,6 +77,19 @@ Change log of this project (starting from GitLab issue #1).
 
 ### Fixed
 
+- After finalizing a daily report, clicking "View" at the top opened the
+  editor with a blank right-side preview (issue #28): the editor page loads
+  an already-finalized report asynchronously in `_loadExisting()` — the left
+  `TextField` listens to its `TextEditingController` and refreshes on its own,
+  but the right-side `Markdown` preview reads `_controller.text` at build time
+  and was never rebuilt, so it stayed on the initial empty content. Before
+  finalizing, the "Generate today's report" path passes the draft in as
+  `initialContent`, so the preview rendered on first build — that is why only
+  the after-finalize "View" path was blank. Fix: wrap the controller
+  assignment in `setState` so the Markdown preview rebuilds with the loaded
+  content. Added 2 widget tests in `editor_page_finalized_preview_test.dart`
+  (view-after-finalize shows the finalized report in the preview + the
+  generate-draft path regression guard)
 - After "Add provider" without manually selecting a main provider, generating a daily report still reported "No available AI provider"
   (issue #26): after issue #25 turned AI providers into a dynamic instance list, main/fallback providers are referenced by id independently —
   when a user added and configured a provider instance via "Add provider" but did not explicitly select it in the "Main provider"

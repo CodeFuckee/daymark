@@ -37,7 +37,12 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   Future<void> _loadExisting() async {
     final content = await readExistingReport(_logRoot, widget.date);
     if (content != null && _controller.text.isEmpty && mounted) {
-      _controller.text = content;
+      // issue #28：赋值 controller 必须 setState——左侧 TextField 内部监听
+      // controller 会自动刷新，右侧 Markdown 取的是构建时的 _controller.text，
+      // 不重建就停留在初始空白（定稿后「查看」路径预览空白即此原因）
+      setState(() {
+        _controller.text = content;
+      });
     }
   }
 

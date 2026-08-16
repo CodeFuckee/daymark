@@ -98,6 +98,15 @@
 
 ### 修复
 
+- 日报定稿后，在顶部点击「查看」，右侧预览页面空白（issue #28）：编辑器
+  打开已定稿日报时，`_loadExisting()` 异步读取内容后只赋值
+  `_controller.text`——左侧 `TextField` 内部监听 controller 会自动刷新，但
+  右侧 `Markdown` 预览在构建时取 `_controller.text`，不会因 controller 变化
+  重建，于是停留在初始空白。定稿前正常是因为「生成今日日报」路径把初稿作为
+  `initialContent` 直接传入，Markdown 首次构建即有内容。修复：赋值 controller
+  时包一层 `setState`，让右侧预览随加载内容重建。新增 widget 测试 2 个
+  （`editor_page_finalized_preview_test.dart`：定稿后查看预览渲染定稿内容 +
+  生成初稿路径回归保障）
 - 「添加供应商」后未手动选择主供应商，生成日报仍报「没有可用的 AI 供应商」
   （issue #26）：issue #25 把 AI 供应商改为动态实例列表后，主/备供应商按 id
   独立引用——用户通过「添加供应商」新增并配置了供应商实例、但未在下方
